@@ -13,6 +13,7 @@ import {
   openAppSpace,
   type SandboxMount,
 } from "@immediately-run/sdk/mounts";
+import { useRegionMessage } from "@immediately-run/sdk";
 import {
   FolderTree,
   Folder,
@@ -141,10 +142,26 @@ function MountTree({ mount }: { mount: SandboxMount }) {
   );
 }
 
+/** Pull a `{ reveal: path }` request out of an untrusted region message (§5.6). */
+function revealPath(data: unknown): string | null {
+  if (data && typeof data === "object" && "reveal" in data) {
+    const r = (data as { reveal?: unknown }).reveal;
+    return typeof r === "string" ? r : null;
+  }
+  return null;
+}
+
 function FileExplorer() {
   const mounts = useMounts();
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // §5.6 L2 receiver half: this app declares it `accepts` messages from panel.agent
+  // (the agent panel). The host delivers them here with a HOST-ATTACHED `from` we
+  // can trust (T19) even though the payload itself is untrusted — so we show who
+  // asked and what, but only render the path as plain text.
+  const msg = useRegionMessage();
+  const reveal = msg ? revealPath(msg.data) : null;
 
   const openWorkspace = async () => {
     setOpening(true);
@@ -170,6 +187,13 @@ function FileExplorer() {
         </span>
         <span className="panel__title">Files</span>
       </header>
+
+      {msg && (
+        <div className="ipc-banner" role="status">
+          <span className="ipc-banner__from">{msg.from}</span> asked to reveal{" "}
+          <code className="ipc-banner__path">{reveal ?? "(no path)"}</code>
+        </div>
+      )}
 
       <div className="panel__body">
         {mounts.length === 0 ? (

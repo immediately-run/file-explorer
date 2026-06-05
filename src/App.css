@@ -143,3 +143,29 @@
 @media (prefers-reduced-motion: reduce) {
   .tnode__spin { animation: none; }
 }
+
+/* §5.6 inter-app message banner — an agent asked us to reveal a path. The `from`
+   is host-attached/unspoofable (T19); the path is rendered as plain text only. */
+.ipc-banner {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--ink, #e6e6ea);
+  background: color-mix(in srgb, var(--accent-violet, #8b5cf6) 16%, transparent);
+  border-bottom: 1px solid var(--line);
+}
+.ipc-banner__from {
+  font-weight: 700;
+  color: var(--accent-violet, #8b5cf6);
+  font-family: var(--mono, ui-monospace, Menlo, monospace);
+}
+.ipc-banner__path {
+  font-family: var(--mono, ui-monospace, Menlo, monospace);
+  background: var(--panel-2, rgba(255,255,255,.06));
+  border-radius: 4px;
+  padding: 1px 6px;
+}
