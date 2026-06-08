@@ -36,6 +36,38 @@
   letter-spacing: 0.01em;
 }
 
+/* Header affordance (collapse all) — pushed to the right of the title. */
+.panel__action {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.panel__action:hover {
+  background: var(--panel-2);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+/* Transient open error (dismiss on click). */
+.panel__error {
+  margin: 6px 10px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .panel__body { flex: 1; overflow-y: auto; padding: 6px 6px 12px; }
 
 /* ---- mount + scope header ---- */
