@@ -1,15 +1,21 @@
 // Read a mount's directory entries from the sandbox filesystem.
 //
-// Mounts (a space / a granted subtree) are attached into the sandbox's own
-// filesystem at their `path` (e.g. `/spaces/{id}`). App code reaches that fs the
-// same way the SDK reaches the other bundler services — through the injected
-// evaluation context at `module.evaluation.module.bundler.fs`. The parent-side
-// file-resolver protocol only proxies `isFile`/`readFile` (for the bundler's
-// lazy import resolution), so directory listing is served by the sandbox-LOCAL
-// fs, which is node-compatible (ZenFS). We read through its `promises` API and
+// Mounts (a space / a granted subtree / the working tree) are attached into the
+// sandbox's own filesystem at their absolute `path` (e.g. `/spaces/{id}`,
+// `/mnt/{hash}`) by ZenFS's global `mount()`. To LIST a directory we need a
+// node-compatible fs (`promises.readdir`/`stat`) rooted at `/` so those absolute
+// mount paths resolve.
+//
+// IMPORTANT: that is NOT `module.evaluation.module.bundler.fs` — despite the name
+// that is the bundler's own layered `FileSystem` (memory + zenfs + node-modules
+// layers) whose surface is only `readFile`/`isFile`/`writeFile`; it has no
+// `readdir`/`promises`, so reading through it throws on every call. The
+// node-compatible fs is the ZenFS bound context the sandbox creates at
+// `globalThis.__sandpackSharedFs` (`bindContext({root:'/'})`), mirrored by the
+// bundler's `zenFsLayer.boundContext.fs`. We read through its `promises` API and
 // tolerate the two common `readdir` shapes (Dirent[] vs string[]).
 //
-// This helper only works inside the sandbox (where `module` is injected); it is
+// This helper only works inside the sandbox (where these globals exist); it is
 // not exercised in local `vite` dev, so every access is guarded.
 
 export interface DirEntry {
@@ -18,14 +24,33 @@ export interface DirEntry {
 }
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
+const hasReaddir = (fs: any): boolean =>
+  typeof fs?.promises?.readdir === "function" || typeof fs?.readdir === "function";
+
 function sandboxFs(): any | null {
+  // 1. The sandbox publishes a '/'-rooted bound ZenFS on globalThis — the
+  //    canonical node-compatible fs that sees every mount.
+  try {
+    const shared = (globalThis as any).__sandpackSharedFs;
+    if (hasReaddir(shared)) return shared;
+  } catch {
+    /* not in the sandbox */
+  }
+  // 2. Fall back to the bundler's ZenFS layer bound context (also '/'-rooted),
+  //    reached the same way the SDK reaches other bundler services.
   try {
     // @ts-expect-error - `module` is injected by the sandbox runtime (see SDK mounts.ts)
-    const fs = module?.evaluation?.module?.bundler?.fs;
-    return fs ?? null;
+    const layers = module?.evaluation?.module?.bundler?.fs?.layers;
+    if (Array.isArray(layers)) {
+      for (const layer of layers) {
+        const fs = layer?.boundContext?.fs;
+        if (hasReaddir(fs)) return fs;
+      }
+    }
   } catch {
-    return null;
+    /* not in the sandbox */
   }
+  return null;
 }
 
 const joinPath = (dir: string, name: string): string =>
