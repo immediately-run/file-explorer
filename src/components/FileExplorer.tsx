@@ -27,6 +27,15 @@ import { readdir, type DirEntry } from "../fs/mountFs";
 const joinPath = (dir: string, name: string): string =>
   `${dir.replace(/\/+$/, "")}/${name}`;
 
+// The working-tree fs can lag its mount descriptor at boot: `useMounts()` surfaces
+// the worktree as soon as the host announces it, but the sandbox-local ZenFS mount
+// it points at may not be attached the instant the root folder first reads. A
+// single failure used to latch a permanent "Couldn't read this folder"; instead we
+// retry a bounded number of times before giving up, so the common boot race heals
+// itself. ~READ_MAX_ATTEMPTS × READ_RETRY_MS ≈ a few seconds of patience.
+const READ_MAX_ATTEMPTS = 12;
+const READ_RETRY_MS = 250;
+
 /** A lazily-loaded tree node following the ARIA tree pattern. File rows are
  *  buttons that open the file in the host editor; directory rows expand/collapse. */
 function TreeNode({
@@ -53,8 +62,11 @@ function TreeNode({
   const [open, setOpen] = useState(defaultOpen);
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
   const [errored, setErrored] = useState(false);
+  // Bumped to re-trigger the read effect when a read fails transiently (the
+  // boot-time fs race). Counts toward READ_MAX_ATTEMPTS before we give up.
+  const [attempt, setAttempt] = useState(0);
   // Loading is DERIVED (not effect-set state): a dir that's open with nothing
-  // loaded yet and no error is loading.
+  // loaded yet and no error is loading (including while we retry).
   const loading = isDir && open && entries === null && !errored;
 
   // A "collapse all" closes every node; re-opening a folder re-reads it.
@@ -65,13 +77,25 @@ function TreeNode({
   useEffect(() => {
     if (!isDir || !open || entries !== null || errored) return;
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     readdir(path)
       .then((list) => live && setEntries(list))
-      .catch(() => live && setErrored(true));
+      .catch(() => {
+        if (!live) return;
+        // Transient at boot (fs not yet attached at the mount path) — retry a
+        // bounded number of times before surfacing the error, so a too-early
+        // first read doesn't strand the folder permanently.
+        if (attempt < READ_MAX_ATTEMPTS) {
+          timer = setTimeout(() => live && setAttempt((a) => a + 1), READ_RETRY_MS);
+        } else {
+          setErrored(true);
+        }
+      });
     return () => {
       live = false;
+      if (timer) clearTimeout(timer);
     };
-  }, [isDir, open, entries, errored, path]);
+  }, [isDir, open, entries, errored, path, attempt]);
 
   const openFile = () => {
     // Repo-relative path = the mount-rooted path minus the `/mnt/{hash}` prefix
