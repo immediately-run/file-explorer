@@ -1,0 +1,48 @@
+# Continuous integration for the file-explorer app: lint, unit tests (Vitest),
+# and a production build on every push and pull request. Keeps the FX regression
+# suite (FileExplorer.test.tsx) green and catches type/build breakage before the
+# cache-zip workflow ships from main.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same ref supersedes an in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # ESLint and tooling treat warnings as errors under CI, matching the
+      # deploy-time build gate.
+      CI: true
+    steps:
+      # Third-party actions are pinned by commit SHA (see cache.yml rationale).
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build

@@ -7,9 +7,20 @@
 // refreshes the preview) — the COW/journal stays in the kernel (§2/§4), the app
 // holds no write port.
 //
-// Known v1 gap: a system app keeps its OWN route (drivesHostRoute=false), so it
-// can't read the host editor's ACTIVE file — no active-file highlight/auto-reveal.
-import { useEffect, useState } from "react";
+// Tree state (expansion, the lazily-read child cache, the selected path) lives in a
+// single path-keyed `TreeStore` (`treeStore.ts`), NOT in each node — so it survives
+// re-renders and mount re-announcements (fixes FX-2: clicking a file no longer
+// collapses its parent directory). `TreeNode` is `React.memo`'d and its callbacks
+// are stable, so a parent re-render doesn't cascade into the whole tree (fixes FX-1:
+// the click-flicker). The selected row is highlighted (FX-4a).
+//
+// Known v1 gap (FX-4b, blocked): a system app keeps its OWN route
+// (drivesHostRoute=false), so it can't read the host editor's ACTIVE file from
+// routing, and the SDK's editor-context channel currently carries only `dirtyPaths`
+// (not `activeFile`). Highlighting the file open in the neighboring editor needs the
+// host to deliver `activeFile` on that channel (UI_AS_APPS_SPEC §5.3 refinement) —
+// deferred to the SDK + host change tracked as FX-4b.
+import { memo, useCallback, useEffect, useState } from "react";
 import {
   useMounts,
   openInEditor,
@@ -30,7 +41,7 @@ import {
   FolderPlus,
   Trash2,
 } from "lucide-react";
-import { readdir, type DirEntry } from "../fs/mountFs";
+import { TreeStore, useNode } from "./treeStore";
 
 const joinPath = (dir: string, name: string): string =>
   `${dir.replace(/\/+$/, "")}/${name}`;
@@ -41,16 +52,19 @@ const PROTECTED = new Set(["/package.json"]);
 
 const MAX_UPLOAD_BYTES = 512 * 1024; // soft client cap; the host enforces the real one
 
-/** A lazily-loaded tree node; re-reads its children when `refreshEpoch` bumps. */
-function TreeNode({
+/**
+ * A controlled tree node. Owns NO expansion/entry state of its own — it reads its
+ * slice from the `TreeStore` (so the state is durable across remounts) and
+ * dispatches `toggle`/`select`. Memoized: its props (`store` + the stable
+ * callbacks) don't change, so a parent re-render doesn't re-render it.
+ */
+const TreeNode = memo(function TreeNode({
   path,
   name,
   isDir,
   depth,
   rootPath,
-  refreshEpoch,
-  collapseEpoch,
-  defaultOpen = false,
+  store,
   onOpenFile,
   onDelete,
 }: {
@@ -59,57 +73,52 @@ function TreeNode({
   isDir: boolean;
   depth: number;
   rootPath: string;
-  /** Bumped after a mutation → re-read open nodes. */
-  refreshEpoch: number;
-  /** Bumped by "collapse all". */
-  collapseEpoch: number;
-  defaultOpen?: boolean;
+  store: TreeStore;
   onOpenFile: (repoRelativePath: string) => void;
   onDelete: (repoRelativePath: string, isDir: boolean) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const [entries, setEntries] = useState<DirEntry[] | null>(null);
-  const [errored, setErrored] = useState(false);
-  const loading = isDir && open && entries === null && !errored;
+  const { expanded, selected, errored, entries } = useNode(store, path);
+  const open = isDir && expanded;
+  const loading = isDir && open && entries === undefined && !errored;
 
+  // Read children lazily when a directory is open and not yet loaded. Re-runs if a
+  // refresh clears its cached entries; the store dedupes concurrent reads.
   useEffect(() => {
-    if (!defaultOpen) setOpen(false);
-  }, [collapseEpoch, defaultOpen]);
+    if (isDir && open && entries === undefined && !errored) store.ensureLoaded(path);
+  }, [isDir, open, entries, errored, path, store]);
 
-  // Read children when open, and RE-read on every refreshEpoch bump (so a create/
-  // delete/upload elsewhere shows up without losing expansion state).
-  useEffect(() => {
-    if (!isDir || !open) return;
-    let live = true;
-    setErrored(false);
-    readdir(path)
-      .then((list) => live && setEntries(list))
-      .catch(() => live && setErrored(true));
-    return () => {
-      live = false;
-    };
-  }, [isDir, open, path, refreshEpoch]);
-
-  const repoRel = () => path.slice(rootPath.length) || "/" + name;
-  const activate = () => (isDir ? setOpen((v) => !v) : onOpenFile(repoRel()));
+  const repoRel = path.slice(rootPath.length) || "/" + name;
+  const activate = () => {
+    if (isDir) {
+      store.toggle(path);
+    } else {
+      store.select(path); // FX-4a: mark the selected row (does NOT touch expansion)
+      onOpenFile(repoRel);
+    }
+  };
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       activate();
     } else if (isDir && e.key === "ArrowRight" && !open) {
-      setOpen(true);
+      store.toggle(path);
     } else if (isDir && e.key === "ArrowLeft" && open) {
-      setOpen(false);
+      store.toggle(path);
     }
   };
 
   const Icon = isDir ? (open ? FolderOpen : Folder) : FileIcon;
-  const deletable = !PROTECTED.has(repoRel());
+  const deletable = !PROTECTED.has(repoRel);
 
   return (
-    <li role="treeitem" aria-expanded={isDir ? open : undefined} aria-label={name}>
+    <li
+      role="treeitem"
+      aria-expanded={isDir ? open : undefined}
+      aria-selected={!isDir ? selected : undefined}
+      aria-label={name}
+    >
       <div
-        className="tnode"
+        className={"tnode" + (selected ? " tnode--selected" : "")}
         style={{ paddingLeft: 8 + depth * 14 }}
         tabIndex={0}
         onClick={activate}
@@ -133,7 +142,7 @@ function TreeNode({
             title={`Delete ${name}`}
             onClick={(e) => {
               e.stopPropagation();
-              onDelete(repoRel(), isDir);
+              onDelete(repoRel, isDir);
             }}
           >
             <Trash2 size={13} aria-hidden="true" />
@@ -161,8 +170,7 @@ function TreeNode({
               isDir={e.isDir}
               depth={depth + 1}
               rootPath={rootPath}
-              refreshEpoch={refreshEpoch}
-              collapseEpoch={collapseEpoch}
+              store={store}
               onOpenFile={onOpenFile}
               onDelete={onDelete}
             />
@@ -171,7 +179,7 @@ function TreeNode({
       )}
     </li>
   );
-}
+});
 
 // Map a host write outcome code to a friendly message.
 const WRITE_ERR: Record<string, string> = {
@@ -185,38 +193,50 @@ const WRITE_ERR: Record<string, string> = {
 
 function FileExplorer() {
   const mounts = useMounts();
-  const [collapseEpoch, setCollapseEpoch] = useState(0);
-  const [refreshEpoch, setRefreshEpoch] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState<null | "file" | "folder">(null);
   const [createName, setCreateName] = useState("");
   const [dragOver, setDragOver] = useState(false);
 
+  // One store for the lifetime of the panel; node slices subscribe to it. Lazy
+  // `useState` (not `useRef`) so the stable instance is readable during render.
+  const [store] = useState(() => new TreeStore());
+
   const worktree: SandboxMount | undefined = mounts.find((m) => m.type === "worktree");
-  const refresh = () => setRefreshEpoch((e) => e + 1);
+  // Idempotent + emit-free: safe to seed during render so the root paints open.
+  if (worktree) store.ensureRoot(worktree.path);
 
-  const runWrite = async (op: () => Promise<void>) => {
-    setError(null);
-    try {
-      await op();
-      refresh();
-    } catch (e) {
-      const code = (e as { code?: string })?.code ?? "unknown";
-      setError(WRITE_ERR[code] ?? "Couldn’t complete that change.");
-    }
-  };
+  const runWrite = useCallback(
+    async (op: () => Promise<void>) => {
+      setError(null);
+      try {
+        await op();
+        store.refresh();
+      } catch (e) {
+        const code = (e as { code?: string })?.code ?? "unknown";
+        setError(WRITE_ERR[code] ?? "Couldn’t complete that change.");
+      }
+    },
+    [store],
+  );
 
-  const onOpenFile = (repoRelativePath: string) => {
+  // Stable across renders so the memoized tree doesn't re-render on FileExplorer
+  // state changes (error / creating / dragOver). Selecting a file does NOT touch
+  // tree state — it only fires the open intent (and surfaces an open error).
+  const onOpenFile = useCallback((repoRelativePath: string) => {
     setError(null);
     void openInEditor(repoRelativePath).catch((e) => {
       if ((e as { code?: string })?.code !== "not-found") setError("Couldn’t open that file.");
     });
-  };
+  }, []);
 
-  const onDelete = (repoRelativePath: string, isDir: boolean) => {
-    if (!window.confirm(`Delete ${isDir ? "folder" : "file"} ${repoRelativePath}?`)) return;
-    void runWrite(() => deleteEntry(repoRelativePath));
-  };
+  const onDelete = useCallback(
+    (repoRelativePath: string, isDir: boolean) => {
+      if (!window.confirm(`Delete ${isDir ? "folder" : "file"} ${repoRelativePath}?`)) return;
+      void runWrite(() => deleteEntry(repoRelativePath));
+    },
+    [runWrite],
+  );
 
   const submitCreate = () => {
     const name = createName.trim().replace(/^\/+/, "");
@@ -280,7 +300,7 @@ function FileExplorer() {
               className="panel__action"
               title="Collapse all folders"
               aria-label="Collapse all folders"
-              onClick={() => setCollapseEpoch((e) => e + 1)}
+              onClick={() => store.collapseAll()}
             >
               <ChevronsDownUp size={15} aria-hidden="true" />
             </button>
@@ -346,9 +366,7 @@ function FileExplorer() {
               isDir
               depth={0}
               rootPath={worktree.path}
-              refreshEpoch={refreshEpoch}
-              collapseEpoch={collapseEpoch}
-              defaultOpen
+              store={store}
               onOpenFile={onOpenFile}
               onDelete={onDelete}
             />
