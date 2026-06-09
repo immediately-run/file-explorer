@@ -75,7 +75,11 @@
   outline: none;
 }
 
-/* Per-row delete affordance — revealed on hover/focus of the row. */
+/* Per-row delete affordance — revealed on focus/selection of the row, and on
+   hover ONLY where a real pointer exists. `:focus-within` and `--selected` are
+   single-element states; `:hover` is emulated and "sticky" on touch (iOS keeps
+   it on the last-tapped row), so gating it behind `@media (hover: hover)` stops
+   stale rows from showing the affordance after a tap (FX: multiple-active). */
 .tnode__del {
   margin-left: auto;
   display: inline-flex;
@@ -88,9 +92,12 @@
   cursor: pointer;
   border-radius: var(--r-sm);
 }
-.tnode:hover .tnode__del,
-.tnode:focus-within .tnode__del { opacity: 1; }
-.tnode__del:hover { color: var(--accent-pink); background: var(--panel-2); }
+.tnode:focus-within .tnode__del,
+.tnode--selected .tnode__del { opacity: 1; }
+@media (hover: hover) {
+  .tnode:hover .tnode__del { opacity: 1; }
+  .tnode__del:hover { color: var(--accent-pink); background: var(--panel-2); }
+}
 
 /* Drag-and-drop upload highlight. */
 .panel__body[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
@@ -160,7 +167,12 @@
   line-height: 1.2;
 }
 .tnode[data-dir="1"] { cursor: pointer; }
-.tnode:hover { background: var(--panel-2); }
+/* Hover background only on real-pointer devices — on touch, iOS emulates a
+   "sticky" :hover that never clears off the previously-tapped row, which made
+   several rows look active at once (FX: multiple-active). */
+@media (hover: hover) {
+  .tnode:hover { background: var(--panel-2); }
+}
 .tnode:focus-visible { outline: none; box-shadow: var(--glow); }
 .tnode__icon { display: grid; place-items: center; color: var(--ink-2); flex: 0 0 auto; }
 .tnode[data-dir="1"] .tnode__icon { color: var(--accent-violet); }
