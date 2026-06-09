@@ -170,6 +170,20 @@
 }
 .tnode__spin { display: inline-flex; color: var(--ink-3); animation: spin 0.9s linear infinite; }
 .tnode--muted { color: var(--ink-3); font-style: italic; cursor: default; }
+
+/* FX-4a — the row the user last opened from the explorer. */
+.tnode--selected,
+.tnode--selected:hover {
+  background: var(--panel-2);
+  box-shadow: inset 2px 0 0 var(--accent-pink);
+}
+.tnode--selected .tnode__name { color: var(--ink); font-weight: 600; }
+
+/* FX-4b — the file currently open in the neighboring editor. Not yet driven:
+   awaits the host delivering `activeFile` on the editor-context channel
+   (UI_AS_APPS_SPEC §5.3). Distinct from --selected (which is explorer-local). */
+.tnode--active .tnode__name { color: var(--accent-violet); }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- states ---- */
