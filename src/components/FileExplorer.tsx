@@ -1,19 +1,24 @@
-// The file explorer (UI_AS_APPS_SPEC §4 / §3.5; migrate-sidebars Phase 03). A
+// The file explorer (UI_AS_APPS_SPEC §4 / §3.5; migrate-sidebars Phase 03+04). A
 // tree view of the EDITOR SESSION's working tree — the repo you're editing —
 // surfaced to this app as a scoped `/mnt/{hash}` mount (`type: 'worktree'`, §3.5).
-// Clicking a file asks the host to open it in the editor (`openInEditor`, the §4
-// `editor:open` intent — the editor stays host-owned, §2).
-//
-// Read-only for now: no create / rename / delete / upload (working-tree mutation
-// is a separate kernel-gated host action, migrate-sidebars Phase 04). With no
-// editor session (e.g. signed-out, or no working tree), it shows an empty state.
+// Clicking a file opens it in the editor (`openInEditor`, the §4 `editor:open`
+// intent). Creating / deleting / uploading files go through the §4 `editor:write`
+// gated host actions: the app NAMES a path and the HOST performs the COW write (and
+// refreshes the preview) — the COW/journal stays in the kernel (§2/§4), the app
+// holds no write port.
 //
 // Known v1 gap: a system app keeps its OWN route (drivesHostRoute=false), so it
-// can't read the host editor's ACTIVE file from routing — there is no
-// active-file highlight / auto-reveal yet. Surfacing the active file to a panel is
-// a small additive editor-context channel (a later phase).
+// can't read the host editor's ACTIVE file — no active-file highlight/auto-reveal.
 import { useEffect, useState } from "react";
-import { useMounts, openInEditor, type SandboxMount } from "@immediately-run/sdk";
+import {
+  useMounts,
+  openInEditor,
+  createFile,
+  createFolder,
+  deleteEntry,
+  uploadFile,
+  type SandboxMount,
+} from "@immediately-run/sdk";
 import {
   FolderTree,
   Folder,
@@ -21,88 +26,72 @@ import {
   File as FileIcon,
   Loader2,
   ChevronsDownUp,
+  FilePlus,
+  FolderPlus,
+  Trash2,
 } from "lucide-react";
 import { readdir, type DirEntry } from "../fs/mountFs";
 
 const joinPath = (dir: string, name: string): string =>
   `${dir.replace(/\/+$/, "")}/${name}`;
 
-// The working-tree fs can lag its mount descriptor at boot: `useMounts()` surfaces
-// the worktree as soon as the host announces it, but the sandbox-local ZenFS mount
-// it points at may not be attached the instant the root folder first reads. A
-// single failure used to latch a permanent "Couldn't read this folder"; instead we
-// retry a bounded number of times before giving up, so the common boot race heals
-// itself. ~READ_MAX_ATTEMPTS × READ_RETRY_MS ≈ a few seconds of patience.
-const READ_MAX_ATTEMPTS = 12;
-const READ_RETRY_MS = 250;
+// Files the host refuses to delete — hide the affordance to match (the host also
+// enforces it, returning `protected`).
+const PROTECTED = new Set(["/package.json"]);
 
-/** A lazily-loaded tree node following the ARIA tree pattern. File rows are
- *  buttons that open the file in the host editor; directory rows expand/collapse. */
+const MAX_UPLOAD_BYTES = 512 * 1024; // soft client cap; the host enforces the real one
+
+/** A lazily-loaded tree node; re-reads its children when `refreshEpoch` bumps. */
 function TreeNode({
   path,
   name,
   isDir,
   depth,
   rootPath,
+  refreshEpoch,
   collapseEpoch,
   defaultOpen = false,
   onOpenFile,
+  onDelete,
 }: {
   path: string;
   name: string;
   isDir: boolean;
   depth: number;
-  /** The mount root, so a file's repo-relative path can be derived for opening. */
   rootPath: string;
-  /** Bumping this collapses every node (the header's "collapse all"). */
+  /** Bumped after a mutation → re-read open nodes. */
+  refreshEpoch: number;
+  /** Bumped by "collapse all". */
   collapseEpoch: number;
   defaultOpen?: boolean;
   onOpenFile: (repoRelativePath: string) => void;
+  onDelete: (repoRelativePath: string, isDir: boolean) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [entries, setEntries] = useState<DirEntry[] | null>(null);
   const [errored, setErrored] = useState(false);
-  // Bumped to re-trigger the read effect when a read fails transiently (the
-  // boot-time fs race). Counts toward READ_MAX_ATTEMPTS before we give up.
-  const [attempt, setAttempt] = useState(0);
-  // Loading is DERIVED (not effect-set state): a dir that's open with nothing
-  // loaded yet and no error is loading (including while we retry).
   const loading = isDir && open && entries === null && !errored;
 
-  // A "collapse all" closes every node; re-opening a folder re-reads it.
   useEffect(() => {
     if (!defaultOpen) setOpen(false);
   }, [collapseEpoch, defaultOpen]);
 
+  // Read children when open, and RE-read on every refreshEpoch bump (so a create/
+  // delete/upload elsewhere shows up without losing expansion state).
   useEffect(() => {
-    if (!isDir || !open || entries !== null || errored) return;
+    if (!isDir || !open) return;
     let live = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    setErrored(false);
     readdir(path)
       .then((list) => live && setEntries(list))
-      .catch(() => {
-        if (!live) return;
-        // Transient at boot (fs not yet attached at the mount path) — retry a
-        // bounded number of times before surfacing the error, so a too-early
-        // first read doesn't strand the folder permanently.
-        if (attempt < READ_MAX_ATTEMPTS) {
-          timer = setTimeout(() => live && setAttempt((a) => a + 1), READ_RETRY_MS);
-        } else {
-          setErrored(true);
-        }
-      });
+      .catch(() => live && setErrored(true));
     return () => {
       live = false;
-      if (timer) clearTimeout(timer);
     };
-  }, [isDir, open, entries, errored, path, attempt]);
+  }, [isDir, open, path, refreshEpoch]);
 
-  const openFile = () => {
-    // Repo-relative path = the mount-rooted path minus the `/mnt/{hash}` prefix
-    // (openInEditor accepts a leading slash). NOT the sandbox `/mnt/...` path.
-    onOpenFile(path.slice(rootPath.length) || "/" + name);
-  };
-  const activate = () => (isDir ? setOpen((v) => !v) : openFile());
+  const repoRel = () => path.slice(rootPath.length) || "/" + name;
+  const activate = () => (isDir ? setOpen((v) => !v) : onOpenFile(repoRel()));
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
@@ -115,6 +104,7 @@ function TreeNode({
   };
 
   const Icon = isDir ? (open ? FolderOpen : Folder) : FileIcon;
+  const deletable = !PROTECTED.has(repoRel());
 
   return (
     <li role="treeitem" aria-expanded={isDir ? open : undefined} aria-label={name}>
@@ -134,6 +124,20 @@ function TreeNode({
           <span className="tnode__spin" aria-hidden="true">
             <Loader2 size={13} />
           </span>
+        )}
+        {deletable && (
+          <button
+            type="button"
+            className="tnode__del"
+            aria-label={`Delete ${name}`}
+            title={`Delete ${name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(repoRel(), isDir);
+            }}
+          >
+            <Trash2 size={13} aria-hidden="true" />
+          </button>
         )}
       </div>
 
@@ -157,8 +161,10 @@ function TreeNode({
               isDir={e.isDir}
               depth={depth + 1}
               rootPath={rootPath}
+              refreshEpoch={refreshEpoch}
               collapseEpoch={collapseEpoch}
               onOpenFile={onOpenFile}
+              onDelete={onDelete}
             />
           ))}
         </ul>
@@ -167,22 +173,72 @@ function TreeNode({
   );
 }
 
+// Map a host write outcome code to a friendly message.
+const WRITE_ERR: Record<string, string> = {
+  exists: "Something with that name already exists.",
+  protected: "That file can’t be deleted.",
+  "too-large": "That file is too large to upload.",
+  "not-found": "That file no longer exists.",
+  forbidden: "You don’t have permission to change files here.",
+  "invalid-params": "That name isn’t valid.",
+};
+
 function FileExplorer() {
   const mounts = useMounts();
   const [collapseEpoch, setCollapseEpoch] = useState(0);
-  const [openError, setOpenError] = useState<string | null>(null);
+  const [refreshEpoch, setRefreshEpoch] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState<null | "file" | "folder">(null);
+  const [createName, setCreateName] = useState("");
+  const [dragOver, setDragOver] = useState(false);
 
-  // The working tree (the repo being edited) is published to this panel as a
-  // `type: 'worktree'` mount (§3.5). Prefer it; there is at most one.
   const worktree: SandboxMount | undefined = mounts.find((m) => m.type === "worktree");
+  const refresh = () => setRefreshEpoch((e) => e + 1);
+
+  const runWrite = async (op: () => Promise<void>) => {
+    setError(null);
+    try {
+      await op();
+      refresh();
+    } catch (e) {
+      const code = (e as { code?: string })?.code ?? "unknown";
+      setError(WRITE_ERR[code] ?? "Couldn’t complete that change.");
+    }
+  };
 
   const onOpenFile = (repoRelativePath: string) => {
-    setOpenError(null);
+    setError(null);
     void openInEditor(repoRelativePath).catch((e) => {
-      const code = (e as { code?: string })?.code;
-      // `forbidden` shouldn't happen for the correctly-bound panel; `not-found`
-      // is a benign race (file deleted under us). Surface only the unexpected.
-      if (code && code !== "not-found") setOpenError("Couldn’t open that file.");
+      if ((e as { code?: string })?.code !== "not-found") setError("Couldn’t open that file.");
+    });
+  };
+
+  const onDelete = (repoRelativePath: string, isDir: boolean) => {
+    if (!window.confirm(`Delete ${isDir ? "folder" : "file"} ${repoRelativePath}?`)) return;
+    void runWrite(() => deleteEntry(repoRelativePath));
+  };
+
+  const submitCreate = () => {
+    const name = createName.trim().replace(/^\/+/, "");
+    const kind = creating;
+    setCreating(null);
+    setCreateName("");
+    if (!name || !kind) return;
+    void runWrite(() => (kind === "file" ? createFile("/" + name) : createFolder("/" + name)));
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    void runWrite(async () => {
+      for (const f of files) {
+        if (f.size > MAX_UPLOAD_BYTES)
+          throw Object.assign(new Error("too large"), { code: "too-large" });
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        await uploadFile("/" + f.name.split(/[\\/]/).pop()!.trim(), bytes);
+      }
     });
   };
 
@@ -194,25 +250,85 @@ function FileExplorer() {
         </span>
         <span className="panel__title">Files</span>
         {worktree && (
-          <button
-            type="button"
-            className="panel__action"
-            title="Collapse all folders"
-            aria-label="Collapse all folders"
-            onClick={() => setCollapseEpoch((e) => e + 1)}
-          >
-            <ChevronsDownUp size={15} aria-hidden="true" />
-          </button>
+          <div className="panel__actions">
+            <button
+              type="button"
+              className="panel__action"
+              title="New file"
+              aria-label="New file"
+              onClick={() => {
+                setCreating("file");
+                setCreateName("");
+              }}
+            >
+              <FilePlus size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="panel__action"
+              title="New folder"
+              aria-label="New folder"
+              onClick={() => {
+                setCreating("folder");
+                setCreateName("");
+              }}
+            >
+              <FolderPlus size={15} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
+              className="panel__action"
+              title="Collapse all folders"
+              aria-label="Collapse all folders"
+              onClick={() => setCollapseEpoch((e) => e + 1)}
+            >
+              <ChevronsDownUp size={15} aria-hidden="true" />
+            </button>
+          </div>
         )}
       </header>
 
-      {openError && (
-        <div className="panel__error" role="alert" onClick={() => setOpenError(null)}>
-          {openError}
+      {error && (
+        <div className="panel__error" role="alert" onClick={() => setError(null)}>
+          {error}
         </div>
       )}
 
-      <div className="panel__body">
+      {creating && (
+        <div className="panel__create">
+          <input
+            className="panel__create-input"
+            autoFocus
+            spellCheck={false}
+            placeholder={creating === "folder" ? "folder/path" : "path/name.ext"}
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submitCreate();
+              else if (e.key === "Escape") {
+                setCreating(null);
+                setCreateName("");
+              }
+            }}
+            onBlur={submitCreate}
+          />
+        </div>
+      )}
+
+      <div
+        className="panel__body"
+        data-drag={dragOver ? "1" : "0"}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes("Files")) {
+            e.preventDefault();
+            setDragOver(true);
+          }
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+        }}
+        onDrop={onDrop}
+      >
         {!worktree ? (
           <div className="state">
             <span className="state__icon">
@@ -230,9 +346,11 @@ function FileExplorer() {
               isDir
               depth={0}
               rootPath={worktree.path}
+              refreshEpoch={refreshEpoch}
               collapseEpoch={collapseEpoch}
               defaultOpen
               onOpenFile={onOpenFile}
+              onDelete={onDelete}
             />
           </ul>
         )}

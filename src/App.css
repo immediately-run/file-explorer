@@ -56,6 +56,45 @@
   color: var(--ink);
 }
 
+/* Header action cluster (new file / new folder / collapse). */
+.panel__actions { margin-left: auto; display: inline-flex; gap: 2px; }
+.panel__actions .panel__action { margin-left: 0; }
+
+/* Inline "new file/folder" path input. */
+.panel__create { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.panel__create-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  border: 1px solid var(--accent-pink);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+}
+
+/* Per-row delete affordance — revealed on hover/focus of the row. */
+.tnode__del {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  opacity: 0;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  border-radius: var(--r-sm);
+}
+.tnode:hover .tnode__del,
+.tnode:focus-within .tnode__del { opacity: 1; }
+.tnode__del:hover { color: var(--accent-pink); background: var(--panel-2); }
+
+/* Drag-and-drop upload highlight. */
+.panel__body[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
+
 /* Transient open error (dismiss on click). */
 .panel__error {
   margin: 6px 10px;
