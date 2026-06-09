@@ -28,6 +28,9 @@ const TREE: Record<string, DirEntry[]> = {
 // Mutable test doubles, shared with the hoisted module mocks below.
 const h = vi.hoisted(() => ({
   mounts: [] as Array<{ type: string; path: string; id?: string }>,
+  // The editor-context active file (FX-4b). Mutable so a test can move it and
+  // re-render, mirroring a host push.
+  activeFile: null as string | null,
   // The arg is recorded by the spy via the factory call below, so the impl needs
   // no param; assertions use `toHaveBeenCalledWith`.
   openInEditor: vi.fn((): Promise<void> => Promise.resolve()),
@@ -36,6 +39,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@immediately-run/sdk", () => ({
   useMounts: () => h.mounts,
+  useEditorContext: () => ({ dirtyPaths: [], openFiles: [], activeFile: h.activeFile }),
   openInEditor: (path: string) => h.openInEditor(path),
   createFile: vi.fn(() => Promise.resolve()),
   createFolder: vi.fn(() => Promise.resolve()),
@@ -53,6 +57,7 @@ const worktree = (id = "repo") => ({ type: "worktree", path: "/mnt/abc", id });
 
 beforeEach(() => {
   h.mounts = [worktree()];
+  h.activeFile = null;
   h.openInEditor.mockClear();
   h.readdir.mockClear();
 });
@@ -107,6 +112,37 @@ describe("FileExplorer", () => {
       "aria-selected",
       "true",
     );
+    expect(screen.getByRole("treeitem", { name: "src" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("FX-4b: the editor's active file is highlighted, and the highlight moves without collapsing the tree", async () => {
+    h.activeFile = "/src/index.ts";
+    const { rerender } = await renderWithSrcExpanded();
+
+    const rowOf = (name: string) =>
+      screen.getByText(name).closest("div.tnode") as HTMLElement;
+
+    // The active file's row is marked --active (distinct from selection); a sibling
+    // file in the same open directory is not.
+    expect(rowOf("index.ts")).toHaveClass("tnode--active");
+    expect(rowOf("index.ts")).toHaveAttribute("aria-current", "true");
+    expect(rowOf("util.ts")).not.toHaveClass("tnode--active");
+    // Active highlight is independent of explorer selection — nothing was clicked.
+    expect(screen.getByRole("treeitem", { name: "index.ts" })).not.toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+
+    // The host moves the active file → the highlight follows, and `src` stays open
+    // (no remount, no collapse).
+    h.activeFile = "/src/util.ts";
+    rerender(<FileExplorer />);
+
+    expect(rowOf("util.ts")).toHaveClass("tnode--active");
+    expect(rowOf("index.ts")).not.toHaveClass("tnode--active");
     expect(screen.getByRole("treeitem", { name: "src" })).toHaveAttribute(
       "aria-expanded",
       "true",

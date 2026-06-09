@@ -179,9 +179,10 @@
 }
 .tnode--selected .tnode__name { color: var(--ink); font-weight: 600; }
 
-/* FX-4b — the file currently open in the neighboring editor. Not yet driven:
-   awaits the host delivering `activeFile` on the editor-context channel
-   (UI_AS_APPS_SPEC §5.3). Distinct from --selected (which is explorer-local). */
+/* FX-4b — the file currently open in the neighboring editor, driven by
+   `useEditorContext().activeFile` (the host delivers it on the editor-context
+   channel, UI_AS_APPS_SPEC §5.3). Distinct from --selected (explorer-local): a
+   file can be selected without being the editor's active file, and vice versa. */
 .tnode--active .tnode__name { color: var(--accent-violet); }
 
 @keyframes spin { to { transform: rotate(360deg); } }

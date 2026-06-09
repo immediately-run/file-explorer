@@ -14,15 +14,17 @@
 // are stable, so a parent re-render doesn't cascade into the whole tree (fixes FX-1:
 // the click-flicker). The selected row is highlighted (FX-4a).
 //
-// Known v1 gap (FX-4b, blocked): a system app keeps its OWN route
-// (drivesHostRoute=false), so it can't read the host editor's ACTIVE file from
-// routing, and the SDK's editor-context channel currently carries only `dirtyPaths`
-// (not `activeFile`). Highlighting the file open in the neighboring editor needs the
-// host to deliver `activeFile` on that channel (UI_AS_APPS_SPEC §5.3 refinement) —
-// deferred to the SDK + host change tracked as FX-4b.
+// FX-4b: the file currently open in the neighboring editor is highlighted
+// (`.tnode--active`), distinct from the explorer-local selection. A system app keeps
+// its OWN route (drivesHostRoute=false) so it can't read the host editor's ACTIVE
+// file from routing; instead the host delivers it on the editor-context channel as
+// `activeFile` (UI_AS_APPS_SPEC §5.3 self-routed-panel refinement), which we read via
+// `useEditorContext().activeFile`. It's repo-relative with a leading slash — the same
+// form `openInEditor` receives — so it compares directly against a node's `repoRel`.
 import { memo, useCallback, useEffect, useState } from "react";
 import {
   useMounts,
+  useEditorContext,
   openInEditor,
   createFile,
   createFolder,
@@ -65,6 +67,7 @@ const TreeNode = memo(function TreeNode({
   depth,
   rootPath,
   store,
+  activeFile,
   onOpenFile,
   onDelete,
 }: {
@@ -74,6 +77,9 @@ const TreeNode = memo(function TreeNode({
   depth: number;
   rootPath: string;
   store: TreeStore;
+  /** The file open in the neighboring editor (repo-relative, leading slash), or
+   *  null. Threaded down so each file row can mark itself `--active` (FX-4b). */
+  activeFile: string | null;
   onOpenFile: (repoRelativePath: string) => void;
   onDelete: (repoRelativePath: string, isDir: boolean) => void;
 }) {
@@ -88,6 +94,9 @@ const TreeNode = memo(function TreeNode({
   }, [isDir, open, entries, errored, path, store]);
 
   const repoRel = path.slice(rootPath.length) || "/" + name;
+  // FX-4b: a file row is "active" when its repo-relative path matches the file open
+  // in the editor. Directories are never active (only files open in the editor).
+  const active = !isDir && repoRel === activeFile;
   const activate = () => {
     if (isDir) {
       store.toggle(path);
@@ -118,12 +127,17 @@ const TreeNode = memo(function TreeNode({
       aria-label={name}
     >
       <div
-        className={"tnode" + (selected ? " tnode--selected" : "")}
+        className={
+          "tnode" +
+          (selected ? " tnode--selected" : "") +
+          (active ? " tnode--active" : "")
+        }
         style={{ paddingLeft: 8 + depth * 14 }}
         tabIndex={0}
         onClick={activate}
         onKeyDown={onKeyDown}
         data-dir={isDir ? "1" : "0"}
+        aria-current={active ? "true" : undefined}
       >
         <span className="tnode__icon">
           <Icon size={15} aria-hidden="true" />
@@ -171,6 +185,7 @@ const TreeNode = memo(function TreeNode({
               depth={depth + 1}
               rootPath={rootPath}
               store={store}
+              activeFile={activeFile}
               onOpenFile={onOpenFile}
               onDelete={onDelete}
             />
@@ -193,6 +208,11 @@ const WRITE_ERR: Record<string, string> = {
 
 function FileExplorer() {
   const mounts = useMounts();
+  // FX-4b: the file open in the neighboring editor, delivered on the editor-context
+  // channel (this self-routed panel can't read it from its own route). null when no
+  // file is open, or when this app lacks `editor:read` (the channel simply never
+  // arrives) — in which case no row is marked active.
+  const { activeFile } = useEditorContext();
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState<null | "file" | "folder">(null);
   const [createName, setCreateName] = useState("");
@@ -367,6 +387,7 @@ function FileExplorer() {
               depth={0}
               rootPath={worktree.path}
               store={store}
+              activeFile={activeFile}
               onOpenFile={onOpenFile}
               onDelete={onDelete}
             />
