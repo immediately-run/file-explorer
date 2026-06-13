@@ -30,6 +30,8 @@ import {
   createFolder,
   deleteEntry,
   uploadFile,
+  listSettingsApps,
+  openSettingsOf,
   type SandboxMount,
 } from "@immediately-run/sdk";
 import {
@@ -226,6 +228,26 @@ function FileExplorer() {
   // Idempotent + emit-free: safe to seed during render so the root paints open.
   if (worktree) store.ensureRoot(worktree.path);
 
+  // The "file commander": every app that has per-user settings (elevated
+  // `settings:all`). Empty for a fork/preview that lacks the capability — the call
+  // rejects `forbidden` and we simply show no settings section. Each opened app's
+  // settings mount is surfaced as its own tree root below.
+  const [settingsApps, setSettingsApps] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    void listSettingsApps()
+      .then((apps) => live && setSettingsApps(apps))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  const settingsMounts = mounts.filter((m) => m.id?.startsWith("settings:"));
+  for (const m of settingsMounts) store.ensureRoot(m.path);
+  const openAppSettings = useCallback((appKey: string) => {
+    void openSettingsOf(appKey).catch(() => undefined);
+  }, []);
+
   const runWrite = useCallback(
     async (op: () => Promise<void>) => {
       setError(null);
@@ -369,7 +391,7 @@ function FileExplorer() {
         }}
         onDrop={onDrop}
       >
-        {!worktree ? (
+        {!worktree && settingsMounts.length === 0 && settingsApps.length === 0 ? (
           <div className="state">
             <span className="state__icon">
               <FolderTree size={20} aria-hidden="true" />
@@ -378,20 +400,54 @@ function FileExplorer() {
             <p>Open a project in the editor and its files appear here.</p>
           </div>
         ) : (
-          <ul role="tree" aria-label="Working tree" className="tree">
-            <TreeNode
-              key={worktree.path}
-              path={worktree.path}
-              name={worktree.id ?? "Files"}
-              isDir
-              depth={0}
-              rootPath={worktree.path}
-              store={store}
-              activeFile={activeFile}
-              onOpenFile={onOpenFile}
-              onDelete={onDelete}
-            />
-          </ul>
+          <>
+            {worktree && (
+              <ul role="tree" aria-label="Working tree" className="tree">
+                <TreeNode
+                  key={worktree.path}
+                  path={worktree.path}
+                  name={worktree.id ?? "Files"}
+                  isDir
+                  depth={0}
+                  rootPath={worktree.path}
+                  store={store}
+                  activeFile={activeFile}
+                  onOpenFile={onOpenFile}
+                  onDelete={onDelete}
+                />
+              </ul>
+            )}
+            {/* Each opened app's settings mount, as its own tree root (settings:all). */}
+            {settingsMounts.map((m) => (
+              <ul key={m.path} role="tree" aria-label="App settings" className="tree">
+                <TreeNode
+                  path={m.path}
+                  name={`settings · ${m.id!.slice("settings:".length)}`}
+                  isDir
+                  depth={0}
+                  rootPath={m.path}
+                  store={store}
+                  activeFile={activeFile}
+                  onOpenFile={onOpenFile}
+                  onDelete={onDelete}
+                />
+              </ul>
+            ))}
+            {/* Apps that have settings but aren't open yet — click to mount. */}
+            {settingsApps
+              .filter((ak) => !settingsMounts.some((m) => m.id === `settings:${ak}`))
+              .map((ak) => (
+                <button
+                  key={ak}
+                  type="button"
+                  className="settings-app"
+                  onClick={() => openAppSettings(ak)}
+                  title={`Open ${ak} settings`}
+                >
+                  <FolderTree size={14} aria-hidden="true" /> settings · {ak}
+                </button>
+              ))}
+          </>
         )}
       </div>
     </section>

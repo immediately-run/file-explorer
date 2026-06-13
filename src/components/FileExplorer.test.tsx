@@ -35,6 +35,7 @@ const h = vi.hoisted(() => ({
   // no param; assertions use `toHaveBeenCalledWith`.
   openInEditor: vi.fn((): Promise<void> => Promise.resolve()),
   readdir: vi.fn((path: string) => Promise.resolve(TREE[path] ?? [])),
+  listSettingsApps: vi.fn((): Promise<string[]> => Promise.resolve([])),
 }));
 
 vi.mock("@immediately-run/sdk", () => ({
@@ -45,6 +46,9 @@ vi.mock("@immediately-run/sdk", () => ({
   createFolder: vi.fn(() => Promise.resolve()),
   deleteEntry: vi.fn(() => Promise.resolve()),
   uploadFile: vi.fn(() => Promise.resolve()),
+  // settings:all enumeration — default to none so the base file tree is unaffected.
+  listSettingsApps: () => h.listSettingsApps(),
+  openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
 }));
 
 vi.mock("../fs/mountFs", () => ({
