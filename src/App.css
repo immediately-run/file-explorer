@@ -102,6 +102,50 @@
 /* Drag-and-drop upload highlight. */
 .panel__body[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
 
+/* A directory row that is a live drop target (internal move R3-81 / upload R3-82). */
+.tnode--droptarget,
+.tnode--droptarget:hover {
+  background: color-mix(in srgb, var(--accent-pink) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-pink);
+}
+
+/* ---- context menu (R3-80) — app-local, NOT host chrome ---- */
+.ctxmenu {
+  position: fixed;
+  z-index: 50;
+  min-width: 168px;
+  padding: 4px;
+  list-style: none;
+  border-radius: var(--r-md);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card, 0 8px 24px rgba(0, 0, 0, 0.4));
+  font-size: 13px;
+}
+.ctxmenu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ctxmenu__item:hover,
+.ctxmenu__item:focus-visible {
+  background: var(--panel-2);
+  outline: none;
+}
+.ctxmenu__item--danger { color: var(--accent-hot, #ff5d73); }
+.ctxmenu__icon { display: grid; place-items: center; color: var(--ink-3); flex: 0 0 auto; }
+.ctxmenu__item--danger .ctxmenu__icon { color: inherit; }
+
 /* Transient open error (dismiss on click). */
 .panel__error {
   margin: 6px 10px;
