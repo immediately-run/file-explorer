@@ -98,3 +98,17 @@ export async function readdir(path: string): Promise<DirEntry[]> {
     a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
   );
 }
+
+/**
+ * Read a file's raw bytes from a mount (R3-83 drag-out: the source inlines a small
+ * file's content so the host can relay it to the previewed app — the source can only
+ * ever hand over bytes it can already read). Throws if the sandbox fs is unavailable
+ * or the read fails; callers fall back to a reference-only drag.
+ */
+export async function readFile(path: string): Promise<Uint8Array> {
+  const fs = sandboxFs();
+  if (!fs) throw new Error("sandbox filesystem unavailable");
+  const p = fs.promises ?? fs;
+  const data = await p.readFile(path);
+  return data instanceof Uint8Array ? data : new Uint8Array(data);
+}
