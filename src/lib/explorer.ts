@@ -65,6 +65,53 @@ export const orderMounts = (mounts: SandboxMount[]): SandboxMount[] =>
     return rank(a) - rank(b) || mountLabel(a).localeCompare(mountLabel(b));
   });
 
+// Files the host refuses to delete/rename — hide the affordance to match (the
+// host also enforces it, returning `protected`). Shared by every layout so the
+// gating is identical in tree / list / icons / columns. Mount-relative paths.
+const PROTECTED = new Set(["/package.json"]);
+
+/** Is this mount-relative path one the host protects from delete/rename? */
+export const isProtected = (mountRel: string): boolean => PROTECTED.has(mountRel);
+
+// ---------------------------------------------------------------------------
+// Breadcrumb / current-directory navigation (R3-84 list + icons layouts)
+// ---------------------------------------------------------------------------
+
+export interface Crumb {
+  /** Display label for the segment. */
+  label: string;
+  /** Absolute path the segment navigates to, or null for the "Mounts" root. */
+  path: string | null;
+}
+
+/**
+ * Resolve a current directory (`cwd`, absolute or null = the Mounts root) into the
+ * owning mount and a breadcrumb trail. The trail always starts at "Mounts" so the
+ * user can step back out to the mount list (mirroring the mobile projection in
+ * brief 13). When `cwd` falls inside a mount, segments are: Mounts › <mount> ›
+ * <subdir…>. When `cwd` is null (or unresolvable), only the Mounts root is shown.
+ * Pure — no React, no I/O.
+ */
+export const breadcrumbFor = (
+  cwd: string | null,
+  ordered: SandboxMount[],
+): { mount: SandboxMount | null; crumbs: Crumb[] } => {
+  const root: Crumb = { label: "Mounts", path: null };
+  if (!cwd) return { mount: null, crumbs: [root] };
+  const mount = ordered.find((m) => cwd === m.path || cwd.startsWith(m.path + "/")) ?? null;
+  if (!mount) return { mount: null, crumbs: [root] };
+
+  const crumbs: Crumb[] = [root, { label: mountLabel(mount), path: mount.path }];
+  const rel = toMountRel(mount.path, cwd); // e.g. "/src/components" or "/"
+  const segs = rel.split("/").filter(Boolean);
+  let acc = mount.path;
+  for (const seg of segs) {
+    acc = joinPath(acc, seg);
+    crumbs.push({ label: seg, path: acc });
+  }
+  return { mount, crumbs };
+};
+
 // ---------------------------------------------------------------------------
 // Drag-and-drop validity (R3-81 move / R3-82 upload)
 // ---------------------------------------------------------------------------

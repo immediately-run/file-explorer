@@ -54,7 +54,13 @@ import {
 } from "lucide-react";
 import { TreeStore, useNode } from "./treeStore";
 import ContextMenu, { type MenuAnchor, type MenuItem } from "./ContextMenu";
+import LayoutSwitcher from "./LayoutSwitcher";
+import ListView from "./ListView";
+import IconGrid from "./IconGrid";
+import ColumnView from "./ColumnView";
 import { useLongPress } from "../hooks/useLongPress";
+import { useLayout, type Layout } from "../hooks/useLayout";
+import { type NodeHandlers, type RowCtx } from "../hooks/useRowInteractions";
 import { readFile } from "../fs/mountFs";
 import {
   joinPath,
@@ -64,37 +70,13 @@ import {
   mountLabel,
   subtreeLabel,
   isWritableMount,
+  isProtected,
   orderMounts,
   moveRejection,
   MOVE_MIME,
   MAX_UPLOAD_BYTES,
   WRITE_ERR,
 } from "../lib/explorer";
-
-// Files the host refuses to delete — hide the affordance to match (the host also
-// enforces it, returning `protected`).
-const PROTECTED = new Set(["/package.json"]);
-
-/** The stable per-tree callback bundle handed to every node (so a re-render doesn't
- *  re-render the memoized tree). Each callback takes explicit args so one instance
- *  serves every scope. */
-interface NodeHandlers {
-  onOpenFile: (mountRel: string) => void;
-  onActivate: (absPath: string, isDir: boolean) => void;
-  onMenu: (e: { clientX: number; clientY: number }, ctx: RowCtx) => void;
-  onMoveDrop: (fromAbs: string, fromRoot: string, targetDir: string, targetRoot: string) => void;
-  onUploadDrop: (files: File[], targetDir: string, writable: boolean) => void;
-  beginDragOut: (absPath: string, isDir: boolean, mountId: string, rootPath: string) => void;
-  onDelete: (absPath: string, isDir: boolean, rootPath: string) => void;
-}
-
-interface RowCtx {
-  absPath: string;
-  isDir: boolean;
-  rootPath: string;
-  mountId: string;
-  writable: boolean;
-}
 
 const TreeNode = memo(function TreeNode({
   path,
@@ -130,7 +112,7 @@ const TreeNode = memo(function TreeNode({
 
   const repoRel = toMountRel(rootPath, path);
   const active = !isDir && repoRel === activeFile;
-  const deletable = writable && !PROTECTED.has(repoRel);
+  const deletable = writable && !isProtected(repoRel);
   const rowCtx: RowCtx = { absPath: path, isDir, rootPath, mountId, writable };
 
   const longPress = useLongPress((x, y) => handlers.onMenu({ clientX: x, clientY: y }, rowCtx));
@@ -342,9 +324,57 @@ function FileExplorer() {
 
   const [store] = useState(() => new TreeStore());
 
+  // R3-84 alternative layouts. `layout` is the persisted view choice; `cwd` is the
+  // browsed directory for the flat list/icon layouts (null = the Mounts root) and
+  // `colPath` is the Miller-column focus path. Selection + active-file stay shared
+  // via the store + editor context, so switching layout keeps both.
+  const [layout, setLayout] = useLayout();
+  const [cwd, setCwd] = useState<string | null>(null);
+  const [colPath, setColPath] = useState<string[]>([]);
+
   const ordered = useMemo(() => orderMounts(mounts), [mounts]);
   // Idempotent + emit-free: safe during render so new scopes paint open.
   store.ensureRoots(ordered.map((m) => m.path));
+
+  // Keep the flat-layout cursors valid as mounts come and go — derive, don't store:
+  // a cwd/colPath that no longer resolves to a live mount reads as the Mounts root
+  // until the user navigates again (no setState-in-effect cascade).
+  const effCwd =
+    cwd && ordered.some((m) => cwd === m.path || cwd.startsWith(m.path + "/")) ? cwd : null;
+  const effColPath =
+    colPath.length && ordered.some((m) => m.path === colPath[0]) ? colPath : [];
+
+  // Switching layout seeds the new view from the current selection so the selected
+  // file stays in view (acceptance: selection survives a switch).
+  const chooseLayout = useCallback(
+    (next: Layout) => {
+      if (next !== layout) {
+        const sel = store.getSelected();
+        if (next === "list" || next === "icons") {
+          setCwd(sel ? dirOf(sel) : ordered.length === 1 ? ordered[0].path : null);
+        } else if (next === "columns") {
+          const mount = sel
+            ? ordered.find((m) => sel === m.path || sel.startsWith(m.path + "/"))
+            : ordered.length === 1
+              ? ordered[0]
+              : undefined;
+          if (!mount) setColPath([]);
+          else {
+            const path = [mount.path];
+            const segs = toMountRel(mount.path, sel ? dirOf(sel) : mount.path).split("/").filter(Boolean);
+            let acc = mount.path;
+            for (const s of segs) {
+              acc = joinPath(acc, s);
+              path.push(acc);
+            }
+            setColPath(path);
+          }
+        }
+      }
+      setLayout(next);
+    },
+    [layout, ordered, store, setLayout],
+  );
 
   const runWrite = useCallback(
     async (op: () => Promise<void>) => {
@@ -497,7 +527,7 @@ function FileExplorer() {
             uploadInputRef.current?.click();
           },
         });
-        if (!PROTECTED.has(mountRel) && ctx.absPath !== ctx.rootPath) {
+        if (!isProtected(mountRel) && ctx.absPath !== ctx.rootPath) {
           items.push({
             key: "rename",
             label: "Rename…",
@@ -569,15 +599,18 @@ function FileExplorer() {
         <span className="panel__title">Files</span>
         {hasMounts && (
           <div className="panel__actions">
-            <button
-              type="button"
-              className="panel__action"
-              title="Collapse all folders"
-              aria-label="Collapse all folders"
-              onClick={() => store.collapseAll()}
-            >
-              <ChevronsDownUp size={15} aria-hidden="true" />
-            </button>
+            <LayoutSwitcher value={layout} onChange={chooseLayout} />
+            {layout === "tree" && (
+              <button
+                type="button"
+                className="panel__action"
+                title="Collapse all folders"
+                aria-label="Collapse all folders"
+                onClick={() => store.collapseAll()}
+              >
+                <ChevronsDownUp size={15} aria-hidden="true" />
+              </button>
+            )}
           </div>
         )}
       </header>
@@ -620,6 +653,12 @@ function FileExplorer() {
             <h4>No files to show yet.</h4>
             <p>Open a project or mount a space and its files appear here.</p>
           </div>
+        ) : layout === "list" ? (
+          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activeFile} handlers={handlers} />
+        ) : layout === "icons" ? (
+          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activeFile} handlers={handlers} />
+        ) : layout === "columns" ? (
+          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={setColPath} activeFile={activeFile} handlers={handlers} />
         ) : (
           ordered.map((m) => (
             <Scope key={m.path} mount={m} store={store} activeFile={activeFile} handlers={handlers} />
