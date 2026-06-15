@@ -18,7 +18,7 @@
 //
 // Each node subscribes to ONLY its own slice via `useSyncExternalStore`, so a
 // toggle or a selection re-renders just the affected rows, never the tree.
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { readdir, type DirEntry } from "../fs/mountFs";
 
 export class TreeStore {
@@ -78,6 +78,8 @@ export class TreeStore {
   isSelected = (p: string): boolean => this.selected === p;
   isErrored = (p: string): boolean => this.errored.has(p);
   getEntries = (p: string): DirEntry[] | undefined => this.entries.get(p);
+  /** The selected absolute path (shared across every layout). */
+  getSelected = (): string | null => this.selected;
 
   // --- mutations (called from handlers / effects, never during render) ---
   toggle = (p: string): void => {
@@ -157,4 +159,30 @@ export function useNode(
   const errored = useSyncExternalStore(store.subscribe, () => store.isErrored(path));
   const entries = useSyncExternalStore(store.subscribe, () => store.getEntries(path));
   return { expanded, selected, errored, entries };
+}
+
+/** Subscribe to the shared selected path (drives the highlight in every layout). */
+export function useSelected(store: TreeStore): string | null {
+  return useSyncExternalStore(store.subscribe, store.getSelected);
+}
+
+/**
+ * Read one directory's entries for the flat layouts (list / icons / columns) and
+ * ensure they are lazily loaded — reusing the SAME path-keyed cache and dedupe as
+ * the tree, so switching layout never re-reads what the tree already loaded.
+ */
+export function useDir(
+  store: TreeStore,
+  path: string | null,
+): { entries: DirEntry[] | undefined; errored: boolean } {
+  const entries = useSyncExternalStore(store.subscribe, () =>
+    path ? store.getEntries(path) : undefined,
+  );
+  const errored = useSyncExternalStore(store.subscribe, () =>
+    path ? store.isErrored(path) : false,
+  );
+  useEffect(() => {
+    if (path && entries === undefined && !errored) store.ensureLoaded(path);
+  }, [store, path, entries, errored]);
+  return { entries, errored };
 }
