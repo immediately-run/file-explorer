@@ -8,7 +8,7 @@
 // - FX-1 (no-remount proxy): a benign worktree re-announce (a new mount object
 //   with the same path) must not remount/reload the tree — asserted via the
 //   `readdir` call count staying flat and expansion being preserved.
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DirEntry } from "../fs/mountFs";
@@ -23,6 +23,7 @@ const TREE: Record<string, DirEntry[]> = {
     { name: "index.ts", isDir: false },
     { name: "util.ts", isDir: false },
   ],
+  "/spaces/s1": [{ name: "note.md", isDir: false }],
 };
 
 // Mutable test doubles, shared with the hoisted module mocks below.
@@ -34,6 +35,11 @@ const h = vi.hoisted(() => ({
   // The arg is recorded by the spy via the factory call below, so the impl needs
   // no param; assertions use `toHaveBeenCalledWith`.
   openInEditor: vi.fn((): Promise<void> => Promise.resolve()),
+  deleteEntry: vi.fn((): Promise<void> => Promise.resolve()),
+  renameEntry: vi.fn((): Promise<void> => Promise.resolve()),
+  uploadFile: vi.fn((): Promise<void> => Promise.resolve()),
+  startItemDrag: vi.fn((): Promise<void> => Promise.resolve()),
+  cancelItemDrag: vi.fn(() => {}),
   readdir: vi.fn((path: string) => Promise.resolve(TREE[path] ?? [])),
   listSettingsApps: vi.fn((): Promise<string[]> => Promise.resolve([])),
 }));
@@ -44,8 +50,11 @@ vi.mock("@immediately-run/sdk", () => ({
   openInEditor: (path: string) => h.openInEditor(path),
   createFile: vi.fn(() => Promise.resolve()),
   createFolder: vi.fn(() => Promise.resolve()),
-  deleteEntry: vi.fn(() => Promise.resolve()),
-  uploadFile: vi.fn(() => Promise.resolve()),
+  deleteEntry: (path: string) => h.deleteEntry(path),
+  renameEntry: (from: string, to: string) => h.renameEntry(from, to),
+  uploadFile: (path: string, bytes: Uint8Array) => h.uploadFile(path, bytes),
+  startItemDrag: (item: unknown) => h.startItemDrag(item),
+  cancelItemDrag: () => h.cancelItemDrag(),
   // settings:all enumeration — default to none so the base file tree is unaffected.
   listSettingsApps: () => h.listSettingsApps(),
   openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
@@ -53,6 +62,7 @@ vi.mock("@immediately-run/sdk", () => ({
 
 vi.mock("../fs/mountFs", () => ({
   readdir: (path: string) => h.readdir(path),
+  readFile: () => Promise.resolve(new Uint8Array([1, 2, 3])),
 }));
 
 import FileExplorer from "./FileExplorer";
@@ -179,5 +189,130 @@ describe("FileExplorer", () => {
     await user.click(screen.getByText("index.ts"));
 
     expect(h.readdir.mock.calls.length).toBe(callsBefore);
+  });
+});
+
+// --- R3-79: multiple mounts -------------------------------------------------
+const space = () => ({ type: "space", path: "/spaces/s1", id: "s1", name: "Shared notes", mode: "ro" as const });
+
+describe("R3-79 — multiple mounts", () => {
+  beforeEach(() => {
+    h.mounts = [worktree(), space()];
+  });
+
+  it("renders one scope per mount (worktree + space)", async () => {
+    render(<FileExplorer />);
+    expect(await screen.findByRole("tree", { name: "repo" })).toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: "Shared notes" })).toBeInTheDocument();
+  });
+
+  it("a read-only space mount shows a read-only chip and no delete affordance", async () => {
+    render(<FileExplorer />);
+    const spaceTree = await screen.findByRole("tree", { name: "Shared notes" });
+    const scope = spaceTree.closest(".mount") as HTMLElement;
+    expect(within(scope).getByText(/read-only/)).toBeInTheDocument();
+    // The space scope root row has no delete button (read-only).
+    expect(within(scope).queryByLabelText(/^Delete /)).not.toBeInTheDocument();
+  });
+
+  it("a revoked mount's scope disappears within one re-announce", async () => {
+    const { rerender } = render(<FileExplorer />);
+    expect(await screen.findByRole("tree", { name: "Shared notes" })).toBeInTheDocument();
+    h.mounts = [worktree()]; // space unshared
+    rerender(<FileExplorer />);
+    expect(screen.queryByRole("tree", { name: "Shared notes" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tree", { name: "repo" })).toBeInTheDocument();
+  });
+});
+
+// --- R3-80: context menu ----------------------------------------------------
+describe("R3-80 — context menu", () => {
+  it("right-clicking a worktree file opens a menu with Open + write actions", async () => {
+    const { user } = await renderWithSrcExpanded();
+    fireEvent.contextMenu(screen.getByText("index.ts"));
+    const menu = await screen.findByRole("menu");
+    for (const label of ["Open", "New file here", "New folder here", "Rename…", "Delete"]) {
+      expect(within(menu).getByRole("menuitem", { name: new RegExp(label) })).toBeInTheDocument();
+    }
+    // Delete from the menu confirms then calls deleteEntry with the mount-rel path.
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(within(menu).getByRole("menuitem", { name: /Delete/ }));
+    expect(h.deleteEntry).toHaveBeenCalledWith("/src/index.ts");
+    confirm.mockRestore();
+  });
+
+  it("a read-only space file's menu offers only Open (no write actions)", async () => {
+    h.mounts = [space()];
+    render(<FileExplorer />);
+    // The space root is open by default → its file appears once readdir resolves.
+    fireEvent.contextMenu(await screen.findByText("note.md"));
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Open/ })).toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: /New file here/ })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("menuitem", { name: /Delete/ })).not.toBeInTheDocument();
+  });
+});
+
+// --- helpers for synthetic drag events --------------------------------------
+function dataTransfer(opts: { move?: string; files?: File[] }) {
+  const types: string[] = [];
+  if (opts.move) types.push("application/x-ir-file-move");
+  if (opts.files?.length) types.push("Files");
+  return {
+    types,
+    files: opts.files ?? [],
+    getData: (t: string) => (t === "application/x-ir-file-move" ? (opts.move ?? "") : ""),
+    setData: () => {},
+    dropEffect: "",
+    effectAllowed: "",
+  };
+}
+
+// --- R3-81: drag to move ----------------------------------------------------
+describe("R3-81 — drag to move within a filesystem", () => {
+  it("dropping a file onto a sibling directory calls renameEntry", async () => {
+    await renderWithSrcExpanded();
+    const srcRow = screen.getByText("src").closest(".tnode") as HTMLElement;
+    fireEvent.drop(srcRow, {
+      dataTransfer: dataTransfer({ move: JSON.stringify({ from: "/mnt/abc/README.md", rootPath: "/mnt/abc" }) }),
+    });
+    expect(h.renameEntry).toHaveBeenCalledWith("/README.md", "/src/README.md");
+  });
+
+  it("a cross-mount drop is rejected (no rename)", async () => {
+    await renderWithSrcExpanded();
+    const srcRow = screen.getByText("src").closest(".tnode") as HTMLElement;
+    fireEvent.drop(srcRow, {
+      dataTransfer: dataTransfer({ move: JSON.stringify({ from: "/spaces/s1/x.md", rootPath: "/spaces/s1" }) }),
+    });
+    expect(h.renameEntry).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/filesystems/);
+  });
+});
+
+// --- R3-82: drag to upload --------------------------------------------------
+describe("R3-82 — drag local files to upload into a directory", () => {
+  it("dropping an OS file onto a directory uploads it into that directory", async () => {
+    await renderWithSrcExpanded();
+    const srcRow = screen.getByText("src").closest(".tnode") as HTMLElement;
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.drop(srcRow, { dataTransfer: dataTransfer({ files: [file] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+});
+
+// --- R3-83: drag-out source -------------------------------------------------
+describe("R3-83 — drag-out asks the host to begin a cross-app drag", () => {
+  it("dragging a file row calls startItemDrag with a reference to that file", async () => {
+    await renderWithSrcExpanded();
+    const fileRow = screen.getByText("index.ts").closest(".tnode") as HTMLElement;
+    fireEvent.dragStart(fileRow, { dataTransfer: dataTransfer({}) });
+    await vi.waitFor(() => expect(h.startItemDrag).toHaveBeenCalled());
+    expect(h.startItemDrag.mock.calls[0][0]).toMatchObject({
+      kind: "file",
+      name: "index.ts",
+      relPath: "/src/index.ts",
+    });
   });
 });

@@ -9,9 +9,16 @@
 // the selected path here — keyed by ABSOLUTE PATH — makes that state durable
 // across re-renders and remounts and independent of component identity.
 //
+// R3-79 (FILE_EXPLORER_SPEC §2): the store is now MULTI-ROOT — one root per
+// mounted filesystem (worktree + spaces + granted subtrees). A single store with
+// a `roots` set (rather than one store per mount) keeps selection/active global
+// and the per-scope invariants intact (expansion is per-absolute-path, so two
+// scopes never collide), with less machinery. Adding/removing a mount reconciles
+// the root set; a removed mount's subtree state is purged.
+//
 // Each node subscribes to ONLY its own slice via `useSyncExternalStore`, so a
 // toggle or a selection re-renders just the affected rows, never the tree.
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { readdir, type DirEntry } from "../fs/mountFs";
 
 export class TreeStore {
@@ -20,7 +27,7 @@ export class TreeStore {
   private errored = new Set<string>();
   private inflight = new Set<string>();
   private selected: string | null = null;
-  private rootPath = "";
+  private roots = new Set<string>();
   private listeners = new Set<() => void>();
 
   /** Stable subscribe fn for `useSyncExternalStore` (identity must not change). */
@@ -36,19 +43,34 @@ export class TreeStore {
   }
 
   /**
-   * Seed the store for a worktree root (root starts open). Idempotent and
-   * side-effect-free for an unchanged root, so it is safe to call during render;
-   * it does NOT emit (the root subtree reads the seeded state on its first render,
-   * and a root CHANGE remounts the subtree via its `key`).
+   * Reconcile the set of mounted roots (R3-79). Each root starts open. Idempotent
+   * and side-effect-free when the set is unchanged, so it is safe to call during
+   * render; it does NOT emit (new scopes read the seeded state on first render; a
+   * removed scope simply stops rendering). Purges the subtree state of any root no
+   * longer present so it can't leak.
    */
-  ensureRoot(rootPath: string): void {
-    if (rootPath === this.rootPath) return;
-    this.rootPath = rootPath;
-    this.expanded = new Set([rootPath]);
-    this.entries = new Map();
-    this.errored = new Set();
-    this.inflight = new Set();
-    this.selected = null;
+  ensureRoots(rootPaths: string[]): void {
+    const next = new Set(rootPaths);
+    if (next.size === this.roots.size && [...next].every((p) => this.roots.has(p))) return;
+
+    // Purge state under roots that went away.
+    for (const gone of this.roots) {
+      if (next.has(gone)) continue;
+      this.purgeUnder(gone);
+    }
+    // Open each (still-/newly-) present root by default.
+    for (const p of next) this.expanded.add(p);
+    this.roots = next;
+  }
+
+  /** Drop expansion / entry / error / selection state at `root` and everything
+   *  under it (a `root/`-prefixed path). */
+  private purgeUnder(root: string) {
+    const under = (p: string) => p === root || p.startsWith(root + "/") || p.startsWith(root.replace(/\/+$/, "") + "/");
+    for (const p of [...this.expanded]) if (under(p)) this.expanded.delete(p);
+    for (const p of [...this.entries.keys()]) if (under(p)) this.entries.delete(p);
+    for (const p of [...this.errored]) if (under(p)) this.errored.delete(p);
+    if (this.selected && under(this.selected)) this.selected = null;
   }
 
   // --- per-path selectors (stable primitive / array snapshots) ---
@@ -56,11 +78,20 @@ export class TreeStore {
   isSelected = (p: string): boolean => this.selected === p;
   isErrored = (p: string): boolean => this.errored.has(p);
   getEntries = (p: string): DirEntry[] | undefined => this.entries.get(p);
+  /** The selected absolute path (shared across every layout). */
+  getSelected = (): string | null => this.selected;
 
   // --- mutations (called from handlers / effects, never during render) ---
   toggle = (p: string): void => {
     if (this.expanded.has(p)) this.expanded.delete(p);
     else this.expanded.add(p);
+    this.emit();
+  };
+
+  /** Force a directory open (used when revealing a drop target / a created path). */
+  open = (p: string): void => {
+    if (this.expanded.has(p)) return;
+    this.expanded.add(p);
     this.emit();
   };
 
@@ -71,9 +102,9 @@ export class TreeStore {
     this.emit();
   };
 
-  /** Collapse every directory but keep the root open (the "collapse all" action). */
+  /** Collapse every directory but keep the mounted roots open ("collapse all"). */
   collapseAll = (): void => {
-    this.expanded = new Set(this.rootPath ? [this.rootPath] : []);
+    this.expanded = new Set(this.roots);
     this.emit();
   };
 
@@ -97,9 +128,9 @@ export class TreeStore {
   };
 
   /**
-   * Re-read every currently-open directory in place (after a create/delete/upload
-   * elsewhere). Stale content stays visible until fresh entries land — no spinner
-   * flash — and expansion/selection are untouched.
+   * Re-read every currently-open directory in place (after a create/delete/upload/
+   * move). Stale content stays visible until fresh entries land — no spinner flash —
+   * and expansion/selection are untouched.
    */
   refresh = (): void => {
     for (const p of [...this.expanded]) {
@@ -128,4 +159,30 @@ export function useNode(
   const errored = useSyncExternalStore(store.subscribe, () => store.isErrored(path));
   const entries = useSyncExternalStore(store.subscribe, () => store.getEntries(path));
   return { expanded, selected, errored, entries };
+}
+
+/** Subscribe to the shared selected path (drives the highlight in every layout). */
+export function useSelected(store: TreeStore): string | null {
+  return useSyncExternalStore(store.subscribe, store.getSelected);
+}
+
+/**
+ * Read one directory's entries for the flat layouts (list / icons / columns) and
+ * ensure they are lazily loaded — reusing the SAME path-keyed cache and dedupe as
+ * the tree, so switching layout never re-reads what the tree already loaded.
+ */
+export function useDir(
+  store: TreeStore,
+  path: string | null,
+): { entries: DirEntry[] | undefined; errored: boolean } {
+  const entries = useSyncExternalStore(store.subscribe, () =>
+    path ? store.getEntries(path) : undefined,
+  );
+  const errored = useSyncExternalStore(store.subscribe, () =>
+    path ? store.isErrored(path) : false,
+  );
+  useEffect(() => {
+    if (path && entries === undefined && !errored) store.ensureLoaded(path);
+  }, [store, path, entries, errored]);
+  return { entries, errored };
 }

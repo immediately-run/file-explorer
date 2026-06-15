@@ -1,0 +1,174 @@
+// List layout (R3-84, brief 13 §2): single-column rows, no tree indentation,
+// sortable by name or type. Navigates one directory at a time with a breadcrumb
+// (the "Mounts" root lists the mounts; opening one drills in). Shares the tree's
+// selection + active-file model and the §3/§4 gestures (context menu, move,
+// upload, drag-out, delete) via `useRowInteractions`. ARIA: a `listbox` of
+// `option` rows; arrow keys roam the rows.
+import { memo, useMemo, useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
+import type { SandboxMount } from "@immediately-run/sdk";
+import { TreeStore, useSelected } from "./treeStore";
+import FileGlyph from "./FileGlyph";
+import Breadcrumb from "./Breadcrumb";
+import { useBrowse, type BrowseRow } from "../hooks/useBrowse";
+import { useLongPress } from "../hooks/useLongPress";
+import { useRowInteractions, type NodeHandlers } from "../hooks/useRowInteractions";
+import { breadcrumbFor, toMountRel, isProtected } from "../lib/explorer";
+import { fileTypeLabel, compareEntries, type SortKey } from "../lib/entryMeta";
+
+const ListRow = memo(function ListRow({
+  row,
+  selected,
+  active,
+  onOpen,
+  handlers,
+}: {
+  row: BrowseRow;
+  selected: boolean;
+  active: boolean;
+  onOpen: (row: BrowseRow) => void;
+  handlers: NodeHandlers;
+}) {
+  const { ctx, name } = row;
+  const longPress = useLongPress((x, y) => handlers.onMenu({ clientX: x, clientY: y }, ctx));
+  const { dropTarget, rowProps } = useRowInteractions(ctx, handlers, longPress);
+  const mountRel = toMountRel(ctx.rootPath, ctx.absPath);
+  const deletable = ctx.writable && ctx.absPath !== ctx.rootPath && !isProtected(mountRel);
+
+  return (
+    <div
+      role="option"
+      aria-selected={selected}
+      aria-current={active ? "true" : undefined}
+      tabIndex={0}
+      className={
+        "lrow" +
+        (selected ? " lrow--selected" : "") +
+        (active ? " lrow--active" : "") +
+        (dropTarget ? " lrow--droptarget" : "")
+      }
+      onClick={() => onOpen(row)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen(row);
+        }
+      }}
+      {...rowProps}
+    >
+      <span className="lrow__name">
+        <span className="lrow__icon">
+          <FileGlyph name={name} isDir={ctx.isDir} />
+        </span>
+        <span className="lrow__label">{name}</span>
+      </span>
+      <span className="lrow__type">{fileTypeLabel(name, ctx.isDir)}</span>
+      {deletable && (
+        <button
+          type="button"
+          className="tnode__del lrow__del"
+          aria-label={`Delete ${name}`}
+          title={`Delete ${name}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            handlers.onDelete(ctx.absPath, ctx.isDir, ctx.rootPath);
+          }}
+        >
+          <Trash2 size={13} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+});
+
+function ListView({
+  store,
+  ordered,
+  cwd,
+  setCwd,
+  activeFile,
+  handlers,
+}: {
+  store: TreeStore;
+  ordered: SandboxMount[];
+  cwd: string | null;
+  setCwd: (path: string | null) => void;
+  activeFile: string | null;
+  handlers: NodeHandlers;
+}) {
+  const selectedPath = useSelected(store);
+  const { mount, rows, loading, errored, empty } = useBrowse(store, cwd, ordered);
+  const { crumbs } = useMemo(() => breadcrumbFor(cwd, ordered), [cwd, ordered]);
+  const [sort, setSort] = useState<SortKey>("name");
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const sorted = useMemo(() => {
+    if (cwd === null) return rows; // mounts root keeps its given (ranked) order
+    return [...rows].sort((a, b) =>
+      compareEntries({ name: a.name, isDir: a.ctx.isDir }, { name: b.name, isDir: b.ctx.isDir }, sort),
+    );
+  }, [rows, sort, cwd]);
+
+  const onOpen = (row: BrowseRow) => {
+    if (row.ctx.isDir) setCwd(row.ctx.absPath);
+    else handlers.onActivate(row.ctx.absPath, false);
+  };
+
+  // Roving focus across the rows (the rows are tabbable; arrows move between them).
+  const onKeyDownList = (e: React.KeyboardEvent) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") return;
+    const opts = Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? []);
+    if (!opts.length) return;
+    e.preventDefault();
+    const i = opts.indexOf(document.activeElement as HTMLElement);
+    const next =
+      e.key === "Home" ? 0 : e.key === "End" ? opts.length - 1 : e.key === "ArrowDown" ? Math.min(opts.length - 1, i + 1) : Math.max(0, i - 1);
+    opts[next < 0 ? 0 : next]?.focus();
+  };
+
+  return (
+    <div className="layout layout--list">
+      <Breadcrumb crumbs={crumbs} mount={mount} onNavigate={setCwd} />
+      {cwd !== null && (
+        <div className="lhead" role="presentation">
+          <button
+            type="button"
+            className={"lhead__col lhead__name" + (sort === "name" ? " lhead__col--on" : "")}
+            aria-pressed={sort === "name"}
+            onClick={() => setSort("name")}
+          >
+            Name
+          </button>
+          <button
+            type="button"
+            className={"lhead__col lhead__type" + (sort === "type" ? " lhead__col--on" : "")}
+            aria-pressed={sort === "type"}
+            onClick={() => setSort("type")}
+          >
+            Type
+          </button>
+        </div>
+      )}
+      <div ref={listRef} role="listbox" aria-label="Files" className="llist" onKeyDown={onKeyDownList}>
+        {loading && <div className="layout__muted">Loading…</div>}
+        {errored && <div className="layout__muted">Couldn’t read this folder.</div>}
+        {empty && <div className="layout__muted">Empty</div>}
+        {sorted.map((row) => {
+          const mountRel = toMountRel(row.ctx.rootPath, row.ctx.absPath);
+          return (
+            <ListRow
+              key={row.ctx.absPath}
+              row={row}
+              selected={selectedPath === row.ctx.absPath}
+              active={!row.ctx.isDir && mountRel === activeFile}
+              onOpen={onOpen}
+              handlers={handlers}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default ListView;

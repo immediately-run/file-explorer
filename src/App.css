@@ -102,6 +102,50 @@
 /* Drag-and-drop upload highlight. */
 .panel__body[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
 
+/* A directory row that is a live drop target (internal move R3-81 / upload R3-82). */
+.tnode--droptarget,
+.tnode--droptarget:hover {
+  background: color-mix(in srgb, var(--accent-pink) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-pink);
+}
+
+/* ---- context menu (R3-80) — app-local, NOT host chrome ---- */
+.ctxmenu {
+  position: fixed;
+  z-index: 50;
+  min-width: 168px;
+  padding: 4px;
+  list-style: none;
+  border-radius: var(--r-md);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow-card, 0 8px 24px rgba(0, 0, 0, 0.4));
+  font-size: 13px;
+}
+.ctxmenu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ctxmenu__item:hover,
+.ctxmenu__item:focus-visible {
+  background: var(--panel-2);
+  outline: none;
+}
+.ctxmenu__item--danger { color: var(--accent-hot, #ff5d73); }
+.ctxmenu__icon { display: grid; place-items: center; color: var(--ink-3); flex: 0 0 auto; }
+.ctxmenu__item--danger .ctxmenu__icon { color: inherit; }
+
 /* Transient open error (dismiss on click). */
 .panel__error {
   margin: 6px 10px;
@@ -240,6 +284,257 @@
 
 @media (prefers-reduced-motion: reduce) {
   .tnode__spin { animation: none; }
+}
+
+/* ===========================================================================
+   Alternative layouts (R3-84): the view switcher + list / icons / columns.
+   Tokens only; mirrors the tree's selection (--selected, accent-pink rail) and
+   active-file (--active, accent-violet) treatments so a layout switch reads the
+   same. The panel is a container so the switcher can show labels when there's
+   room and collapse to icon-only when narrow (brief 13 §1).
+   =========================================================================== */
+.panel { container: panel / inline-size; }
+
+/* ---- view switcher (segmented control) ---- */
+.viewswitch {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.viewswitch__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+.viewswitch__btn:hover { color: var(--ink); }
+.viewswitch__btn:focus-visible { outline: none; box-shadow: var(--glow); }
+.viewswitch__btn--active {
+  background: var(--grad);
+  color: #16101a;
+}
+.viewswitch__btn--active:hover { color: #16101a; }
+.viewswitch__label { display: none; }
+@container panel (min-width: 360px) {
+  .viewswitch__label { display: inline; }
+}
+
+/* ---- shared layout shell ---- */
+.layout { display: flex; flex-direction: column; min-height: 0; }
+.layout__muted { padding: 10px 12px; color: var(--ink-3); font-style: italic; font-size: 12.5px; }
+
+/* ---- breadcrumb (list + icons) ---- */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+.crumbs__back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px; height: 24px;
+  flex: 0 0 auto;
+  border-radius: var(--r-sm);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+.crumbs__back:hover:not(:disabled) { background: var(--panel-2); border-color: var(--line); color: var(--ink); }
+.crumbs__back:disabled { opacity: 0.4; cursor: default; }
+.crumbs__trail {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  min-width: 0;
+  flex: 1;
+  scrollbar-width: none;
+}
+.crumbs__trail::-webkit-scrollbar { display: none; }
+.crumbs__seg { display: inline-flex; align-items: center; white-space: nowrap; }
+.crumbs__sep { color: var(--ink-3); margin: 0 1px; flex: 0 0 auto; }
+.crumbs__link {
+  border: 0; background: transparent; padding: 2px 4px;
+  color: var(--ink-2); font-family: var(--sans); font-size: 12px; cursor: pointer;
+  border-radius: var(--r-xs);
+}
+.crumbs__link:hover { color: var(--ink); background: var(--panel-2); }
+.crumbs__cur { padding: 2px 4px; color: var(--ink); font-size: 12px; font-weight: 600; }
+.crumbs__chip { flex: 0 0 auto; }
+
+/* ---- list layout ---- */
+.layout--list { flex: 1; }
+.lhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.lhead__col {
+  border: 0; background: transparent; padding: 2px 4px;
+  color: var(--ink-3); font-family: var(--mono); font-size: 10.5px;
+  text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer;
+}
+.lhead__name { flex: 1; text-align: left; }
+.lhead__type { width: 35%; text-align: left; }
+.lhead__col:hover { color: var(--ink); }
+.lhead__col--on { color: var(--accent-pink); }
+.llist { flex: 1; overflow-y: auto; padding: 4px 6px; }
+.lrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+}
+.lrow__name { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.lrow__icon { display: grid; place-items: center; color: var(--ink-2); flex: 0 0 auto; }
+.lrow[aria-selected] .lrow__name .lrow__icon { color: var(--ink-2); }
+.lrow__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrow__type { width: 35%; color: var(--ink-3); font-size: 11.5px; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrow__del { margin-left: 0; }
+@media (hover: hover) { .lrow:hover { background: var(--panel-2); } }
+.lrow:focus-visible { outline: none; box-shadow: var(--glow); }
+.lrow--selected, .lrow--selected:hover { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent-pink); }
+.lrow--selected .lrow__label { font-weight: 600; }
+.lrow--active .lrow__label { color: var(--accent-violet); }
+.lrow--droptarget, .lrow--droptarget:hover {
+  background: color-mix(in srgb, var(--accent-pink) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-pink);
+}
+
+/* ---- icon (grid) layout ---- */
+.layout--icons { flex: 1; }
+.igrid {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 6px;
+  padding: 10px;
+  align-content: start;
+}
+.tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 14px 8px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  text-align: center;
+}
+.tile__icon { color: var(--accent-violet); display: grid; place-items: center; }
+.tile:not([aria-label*="Folder"]) .tile__icon { color: var(--ink-2); }
+.tile__label {
+  font-size: 12px;
+  line-height: 1.25;
+  width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.tile__del { position: absolute; top: 4px; right: 4px; margin-left: 0; }
+@media (hover: hover) { .tile:hover { background: var(--panel-2); border-color: var(--line); } }
+.tile:focus-visible { outline: none; box-shadow: var(--glow); }
+.tile--selected { background: var(--panel-2); border-color: var(--accent-pink); }
+.tile--selected .tile__label { font-weight: 600; }
+.tile--active .tile__label { color: var(--accent-violet); }
+.tile--droptarget {
+  background: color-mix(in srgb, var(--accent-pink) 18%, transparent);
+  border-color: var(--accent-pink);
+}
+
+/* ---- column (Miller) layout ---- */
+.layout--columns {
+  flex: 1;
+  flex-direction: row;
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  align-items: stretch;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  min-width: 200px;
+  width: 200px;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--line);
+  opacity: 0.7;
+  transition: opacity 0.12s ease;
+}
+.col--focus { opacity: 1; box-shadow: inset 2px 0 0 var(--accent-pink); }
+.col__head { padding: 8px 8px 6px; min-height: 18px; display: flex; align-items: center; }
+.col__title {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--ink-3); font-family: var(--mono);
+}
+.col__chip { max-width: 100%; }
+.col__list { flex: 1; overflow-y: auto; padding: 2px 6px 8px; }
+.crow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+}
+.crow__icon { display: grid; place-items: center; color: var(--ink-2); flex: 0 0 auto; }
+.crow[aria-selected] .crow__icon { color: inherit; }
+.crow__label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crow__chev { color: var(--ink-3); flex: 0 0 auto; font-size: 14px; }
+.crow__del { margin-left: 0; }
+@media (hover: hover) { .crow:hover { background: var(--panel-2); } }
+.crow:focus-visible { outline: none; box-shadow: var(--glow); }
+/* A drilled-into directory wears the signature gradient (it IS the focus path). */
+.crow--path, .crow--path:hover { background: var(--grad); color: #16101a; }
+.crow--path .crow__icon, .crow--path .crow__chev { color: #16101a; }
+.crow--selected:not(.crow--path), .crow--selected:not(.crow--path):hover {
+  background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent-pink);
+}
+.crow--active:not(.crow--path) .crow__label { color: var(--accent-violet); }
+.crow--droptarget {
+  background: color-mix(in srgb, var(--accent-pink) 18%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-pink);
+}
+
+/* Narrow / mobile projection (brief 13): columns become one-at-a-time with
+   scroll-snap so a phone pane shows a single column and the user swipes the path,
+   mirroring the §4.1 single-column projection. */
+@container panel (max-width: 420px) {
+  .col { min-width: 100%; width: 100%; scroll-snap-align: start; }
+  .layout--columns { scroll-snap-type: x mandatory; }
 }
 
 /* §5.6 inter-app message banner — an agent asked us to reveal a path. The `from`
