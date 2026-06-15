@@ -34,7 +34,13 @@ export const isWorktree = (m: SandboxMount): boolean => m.type === "worktree";
  *  id, else a generic by type. Never the opaque `/mnt/{hash}` path. */
 export const mountLabel = (m: SandboxMount): string => {
   if (m.name && m.name.trim()) return m.name.trim();
-  if (m.id && m.id.trim()) return m.id.trim();
+  if (m.id && m.id.trim()) {
+    const id = m.id.trim();
+    // Per-user app settings mounts (the "file commander", `settings:all`) read
+    // nicer as "settings · <app>" than the raw `settings:<app>` id.
+    if (id.startsWith("settings:")) return `settings · ${id.slice("settings:".length)}`;
+    return id;
+  }
   return isWorktree(m) ? "Working tree" : m.type === "space" ? "Space" : "Files";
 };
 

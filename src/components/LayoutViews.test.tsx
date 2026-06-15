@@ -36,6 +36,10 @@ vi.mock("@immediately-run/sdk", () => ({
   uploadFile: vi.fn(() => Promise.resolve()),
   startItemDrag: vi.fn(() => Promise.resolve()),
   cancelItemDrag: vi.fn(() => {}),
+  // settings:all enumeration (the "file commander") — default to none so the
+  // layout-view tests see only the base mounts.
+  listSettingsApps: vi.fn((): Promise<string[]> => Promise.resolve([])),
+  openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
 }));
 
 vi.mock("../fs/mountFs", () => ({

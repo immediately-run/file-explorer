@@ -33,6 +33,8 @@ import {
   deleteEntry,
   renameEntry,
   uploadFile,
+  listSettingsApps,
+  openSettingsOf,
   startItemDrag,
   cancelItemDrag,
   type SandboxMount,
@@ -376,6 +378,28 @@ function FileExplorer() {
     [layout, ordered, store, setLayout],
   );
 
+  // The "file commander": every app that has per-user settings (elevated
+  // `settings:all`). Empty for a fork/preview that lacks the capability — the call
+  // rejects `forbidden` and we simply show no settings section. Each opened app's
+  // settings mount is surfaced as its own tree root below.
+  const [settingsApps, setSettingsApps] = useState<string[]>([]);
+  useEffect(() => {
+    let live = true;
+    void listSettingsApps()
+      .then((apps) => live && setSettingsApps(apps))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  // Opened settings mounts flow through `ordered` (and `ensureRoots` above), so
+  // they render as their own Scope; this slice is only used to hide a "click to
+  // open" row for an app whose settings are already mounted.
+  const settingsMounts = mounts.filter((m) => m.id?.startsWith("settings:"));
+  const openAppSettings = useCallback((appKey: string) => {
+    void openSettingsOf(appKey).catch(() => undefined);
+  }, []);
+
   const runWrite = useCallback(
     async (op: () => Promise<void>) => {
       setError(null);
@@ -645,7 +669,7 @@ function FileExplorer() {
       <input ref={uploadInputRef} type="file" multiple hidden onChange={onUploadInput} aria-hidden="true" tabIndex={-1} />
 
       <div className="panel__body">
-        {!hasMounts ? (
+        {!hasMounts && settingsApps.length === 0 ? (
           <div className="state">
             <span className="state__icon">
               <FolderTree size={20} aria-hidden="true" />
@@ -664,6 +688,22 @@ function FileExplorer() {
             <Scope key={m.path} mount={m} store={store} activeFile={activeFile} handlers={handlers} />
           ))
         )}
+        {/* Apps that have per-user settings but aren't mounted yet — click to open
+            (`settings:all`). An already-opened settings mount renders above as its
+            own Scope via `ordered`, so filter those out. Shown in every layout. */}
+        {settingsApps
+          .filter((ak) => !settingsMounts.some((m) => m.id === `settings:${ak}`))
+          .map((ak) => (
+            <button
+              key={ak}
+              type="button"
+              className="settings-app"
+              onClick={() => openAppSettings(ak)}
+              title={`Open ${ak} settings`}
+            >
+              <FolderTree size={14} aria-hidden="true" /> settings · {ak}
+            </button>
+          ))}
       </div>
 
       {menu && <ContextMenu anchor={menu} onClose={() => setMenu(null)} />}

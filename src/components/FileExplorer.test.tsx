@@ -41,6 +41,7 @@ const h = vi.hoisted(() => ({
   startItemDrag: vi.fn((): Promise<void> => Promise.resolve()),
   cancelItemDrag: vi.fn(() => {}),
   readdir: vi.fn((path: string) => Promise.resolve(TREE[path] ?? [])),
+  listSettingsApps: vi.fn((): Promise<string[]> => Promise.resolve([])),
 }));
 
 vi.mock("@immediately-run/sdk", () => ({
@@ -54,6 +55,9 @@ vi.mock("@immediately-run/sdk", () => ({
   uploadFile: (path: string, bytes: Uint8Array) => h.uploadFile(path, bytes),
   startItemDrag: (item: unknown) => h.startItemDrag(item),
   cancelItemDrag: () => h.cancelItemDrag(),
+  // settings:all enumeration — default to none so the base file tree is unaffected.
+  listSettingsApps: () => h.listSettingsApps(),
+  openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
 }));
 
 vi.mock("../fs/mountFs", () => ({
