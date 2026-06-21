@@ -532,6 +532,7 @@ function FileExplorer() {
             setSummary({
               absPath: ctx.absPath,
               rootPath: ctx.rootPath,
+              mountId: ctx.mountId,
               name: basename(ctx.absPath),
               writable: ctx.writable,
             }),

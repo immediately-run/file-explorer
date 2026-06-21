@@ -6,8 +6,12 @@
   "immediately.run": {
     "requireLatest": "stale_ok",
     "requests": {
-      "llm:chat": {}
-    }
+      "llm:chat": {},
+      "task:invoke": {}
+    },
+    "invokes": [
+      { "task": "pick-file", "version": "^1" }
+    ]
   },
   "scripts": {
     "dev": "vite",

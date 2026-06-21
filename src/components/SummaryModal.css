@@ -46,6 +46,14 @@
   white-space: nowrap;
 }
 
+.sm-provider {
+  margin-left: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  opacity: 0.55;
+  white-space: nowrap;
+}
+
 .sm-body {
   flex: 1;
   min-height: 80px;

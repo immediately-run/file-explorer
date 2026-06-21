@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { chat, uploadFile } from "@immediately-run/sdk";
+import { capDir, chat, invokeTask, uploadFile, useChatProvider } from "@immediately-run/sdk";
 import { readFile } from "../fs/mountFs";
-import { dirOf, joinPath, toMountRel } from "../lib/explorer";
 import "./SummaryModal.css";
 
 /** The file to summarize, in the explorer's absolute-path space. */
 export interface SummaryTarget {
   absPath: string;
   rootPath: string;
+  /** The source file's mount id — delegated as the save root for the pick-file task. */
+  mountId: string;
   name: string;
-  /** Whether the source mount is writable (gates the "Save summary" affordance). */
+  /** Whether the source mount is writable (gates the "Save…" affordance). */
   writable: boolean;
 }
 
@@ -38,6 +39,7 @@ export default function SummaryModal({
   const [phase, setPhase] = useState<Phase>("reading");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const provider = useChatProvider();
   const startedRef = useRef(false);
 
   useEffect(() => {
@@ -93,14 +95,26 @@ export default function SummaryModal({
     };
   }, [target]);
 
+  // Save via the file selector (the `pick-file` task): delegate the source mount as
+  // a writable root, let the user choose a location/name in host UI, then write the
+  // summary with `uploadFile` (the chosen relPath is relative to the delegated mount
+  // root — the same mount-relative path uploadFile expects). The explorer never
+  // gains a "show a modal" capability; the file selector decides and runs it.
   const save = async () => {
-    const saveAbs = joinPath(dirOf(target.absPath), `${target.name}.summary.md`);
-    const rel = toMountRel(target.rootPath, saveAbs);
     try {
+      const res = await invokeTask<{ root: number; relPath: string }>("pick-file", {
+        mode: "save-file",
+        roots: [capDir({ mountId: target.mountId, relPath: "/" }, { mode: "rw" })],
+        title: "Save summary",
+        suggestedName: `${target.name}.summary.md`,
+      });
+      const rel = res.relPath.startsWith("/") ? res.relPath : `/${res.relPath}`;
       await uploadFile(rel, new TextEncoder().encode(text));
       setSaved(rel);
     } catch (e) {
-      setError(`Couldn't save: ${(e as Error)?.message ?? "read-only"}.`);
+      const code = (e as { code?: string })?.code;
+      if (code === "cancelled") return; // user dismissed the picker
+      setError(`Couldn't save: ${(e as Error)?.message ?? "unknown error"}.`);
     }
   };
 
@@ -118,6 +132,7 @@ export default function SummaryModal({
           <code className="sm-file" title={target.absPath}>
             {target.name}
           </code>
+          {provider && <span className="sm-provider">via {provider.providerId}</span>}
         </header>
         <div className="sm-body">
           {phase === "reading" && <p className="sm-status">Reading file…</p>}
@@ -134,7 +149,7 @@ export default function SummaryModal({
           <div className="sm-actions">
             {target.writable && phase === "done" && !saved && (
               <button type="button" className="sm-btn" onClick={save}>
-                Save summary
+                Save…
               </button>
             )}
             <button type="button" className="sm-btn sm-primary" onClick={onClose}>
