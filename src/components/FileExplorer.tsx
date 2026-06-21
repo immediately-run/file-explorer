@@ -53,9 +53,11 @@ import {
   Upload,
   ExternalLink,
   Lock,
+  Sparkles,
 } from "lucide-react";
 import { TreeStore, useNode } from "./treeStore";
 import ContextMenu, { type MenuAnchor, type MenuItem } from "./ContextMenu";
+import SummaryModal, { type SummaryTarget } from "./SummaryModal";
 import LayoutSwitcher from "./LayoutSwitcher";
 import ListView from "./ListView";
 import IconGrid from "./IconGrid";
@@ -314,6 +316,7 @@ function FileExplorer() {
   const { activeFile } = useEditorContext();
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  const [summary, setSummary] = useState<SummaryTarget | null>(null);
   // Inline prompt for create / rename: a single targeted input.
   const [prompt, setPrompt] = useState<
     | { mode: "create-file" | "create-folder"; baseDir: string; rootPath: string }
@@ -521,6 +524,18 @@ function FileExplorer() {
       const mountRel = toMountRel(ctx.rootPath, ctx.absPath);
       if (!ctx.isDir) {
         items.push({ key: "open", label: "Open", icon: <ExternalLink size={14} />, onSelect: () => onOpenFile(mountRel) });
+        items.push({
+          key: "summarize",
+          label: "Summarize…",
+          icon: <Sparkles size={14} />,
+          onSelect: () =>
+            setSummary({
+              absPath: ctx.absPath,
+              rootPath: ctx.rootPath,
+              name: basename(ctx.absPath),
+              writable: ctx.writable,
+            }),
+        });
       }
       if (ctx.writable) {
         const baseDir = ctx.isDir ? ctx.absPath : dirOf(ctx.absPath);
@@ -707,6 +722,7 @@ function FileExplorer() {
       </div>
 
       {menu && <ContextMenu anchor={menu} onClose={() => setMenu(null)} />}
+      {summary && <SummaryModal target={summary} onClose={() => setSummary(null)} />}
     </section>
   );
 }
