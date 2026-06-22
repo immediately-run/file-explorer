@@ -25,7 +25,8 @@ const MAX_CHARS = 40_000;
  * in, and can save it next to the source file (gated on a writable mount).
  *
  * This is an in-iframe overlay (the fork draws its own dialog inside its sandbox).
- * The host-chrome `ui:overlay` self-overlay (PR #84 §6.3) is the richer follow-up.
+ * The host-chrome `ui:overlay` self-overlay (SERVICE_PROVIDERS_SPEC §6.3) is the
+ * richer follow-up.
  */
 export default function SummaryModal({
   target,
