@@ -4,7 +4,7 @@
 // subtrees — one scope-headed tree per mount (R3-79). Clicking a file opens it in the
 // editor (`openInEditor`, the §4 `editor:open` intent). Create / rename / delete /
 // upload / move go through the §4 `editor:write` gated host actions: the app NAMES a
-// path and the HOST performs the COW write — the COW/journal stays in the kernel
+// path and the HOST performs the COW write — the COW/journal stays in the host
 // (§2/§4), the app holds no write port. Those affordances appear only on a WRITABLE
 // mount (v1: the worktree); other mounts are read-only (per-mount write is the §3.5
 // open item) and never surface `EROFS` as UX.
