@@ -27,6 +27,11 @@ export class TreeStore {
   private errored = new Set<string>();
   private inflight = new Set<string>();
   private selected: string | null = null;
+  // The editor's active file (mount-relative, e.g. `/src/App.tsx`), mirrored from
+  // the host `editor-context` channel. Held here — NOT threaded as a prop through
+  // the memoized tree — so a change re-renders ONLY the two rows whose active state
+  // flips (via `useSyncExternalStore`), never the whole tree (FX-1 / FX-4b).
+  private activeFile: string | null = null;
   private roots = new Set<string>();
   private listeners = new Set<() => void>();
 
@@ -80,6 +85,12 @@ export class TreeStore {
   getEntries = (p: string): DirEntry[] | undefined => this.entries.get(p);
   /** The selected absolute path (shared across every layout). */
   getSelected = (): string | null => this.selected;
+  /** Is `repoRel` (mount-relative) the editor's active file? Drives the FX-4b row
+   *  highlight without a per-node prop (compared mount-relative, matching the
+   *  host's `editor-context.activeFile`). */
+  isActive = (repoRel: string): boolean => this.activeFile === repoRel;
+  /** The editor's active file, mount-relative (shared across every layout). */
+  getActiveFile = (): string | null => this.activeFile;
 
   // --- mutations (called from handlers / effects, never during render) ---
   toggle = (p: string): void => {
@@ -99,6 +110,14 @@ export class TreeStore {
   select = (p: string): void => {
     if (this.selected === p) return;
     this.selected = p;
+    this.emit();
+  };
+
+  /** Mirror the editor's active file (mount-relative). Emits only on a real change,
+   *  so the editor-context push re-renders just the two affected rows (FX-4b). */
+  setActiveFile = (next: string | null): void => {
+    if (this.activeFile === next) return;
+    this.activeFile = next;
     this.emit();
   };
 
@@ -164,6 +183,13 @@ export function useNode(
 /** Subscribe to the shared selected path (drives the highlight in every layout). */
 export function useSelected(store: TreeStore): string | null {
   return useSyncExternalStore(store.subscribe, store.getSelected);
+}
+
+/** Subscribe a node to ONLY whether it is the editor's active file (FX-4b). Keyed
+ *  by the node's mount-relative path so a change re-renders just the two rows whose
+ *  active state flips — not the whole memoized tree. */
+export function useActive(store: TreeStore, repoRel: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => store.isActive(repoRel));
 }
 
 /**

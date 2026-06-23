@@ -55,7 +55,7 @@ import {
   Lock,
   Sparkles,
 } from "lucide-react";
-import { TreeStore, useNode } from "./treeStore";
+import { TreeStore, useNode, useActive } from "./treeStore";
 import ContextMenu, { type MenuAnchor, type MenuItem } from "./ContextMenu";
 import SummaryModal, { type SummaryTarget } from "./SummaryModal";
 import LayoutSwitcher from "./LayoutSwitcher";
@@ -91,7 +91,6 @@ const TreeNode = memo(function TreeNode({
   mountId,
   writable,
   store,
-  activeFile,
   handlers,
 }: {
   path: string;
@@ -102,7 +101,6 @@ const TreeNode = memo(function TreeNode({
   mountId: string;
   writable: boolean;
   store: TreeStore;
-  activeFile: string | null;
   handlers: NodeHandlers;
 }) {
   const { expanded, selected, errored, entries } = useNode(store, path);
@@ -115,7 +113,10 @@ const TreeNode = memo(function TreeNode({
   }, [isDir, open, entries, errored, path, store]);
 
   const repoRel = toMountRel(rootPath, path);
-  const active = !isDir && repoRel === activeFile;
+  // Active highlight via a per-node store subscription (NOT a threaded prop), so
+  // an editor-context activeFile change re-renders only the affected rows (FX-4b).
+  const activeMatch = useActive(store, repoRel);
+  const active = !isDir && activeMatch;
   const deletable = writable && !isProtected(repoRel);
   const rowCtx: RowCtx = { absPath: path, isDir, rootPath, mountId, writable };
 
@@ -256,7 +257,6 @@ const TreeNode = memo(function TreeNode({
               mountId={mountId}
               writable={writable}
               store={store}
-              activeFile={activeFile}
               handlers={handlers}
             />
           ))}
@@ -270,12 +270,10 @@ const TreeNode = memo(function TreeNode({
 const Scope = memo(function Scope({
   mount,
   store,
-  activeFile,
   handlers,
 }: {
   mount: SandboxMount;
   store: TreeStore;
-  activeFile: string | null;
   handlers: NodeHandlers;
 }) {
   const writable = isWritableMount(mount);
@@ -303,7 +301,6 @@ const Scope = memo(function Scope({
           mountId={mountId}
           writable={writable}
           store={store}
-          activeFile={activeFile}
           handlers={handlers}
         />
       </ul>
@@ -340,6 +337,13 @@ function FileExplorer() {
   const ordered = useMemo(() => orderMounts(mounts), [mounts]);
   // Idempotent + emit-free: safe during render so new scopes paint open.
   store.ensureRoots(ordered.map((m) => m.path));
+
+  // Mirror the editor's active file into the store (FX-4b). Held in the store —
+  // not threaded as a prop through the memoized tree — so a change re-renders only
+  // the two rows whose active state flips, never the whole tree.
+  useEffect(() => {
+    store.setActiveFile(activeFile);
+  }, [store, activeFile]);
 
   // Keep the flat-layout cursors valid as mounts come and go — derive, don't store:
   // a cwd/colPath that no longer resolves to a live mount reads as the Mounts root
@@ -700,7 +704,7 @@ function FileExplorer() {
           <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={setColPath} activeFile={activeFile} handlers={handlers} />
         ) : (
           ordered.map((m) => (
-            <Scope key={m.path} mount={m} store={store} activeFile={activeFile} handlers={handlers} />
+            <Scope key={m.path} mount={m} store={store} handlers={handlers} />
           ))
         )}
         {/* Apps that have per-user settings but aren't mounted yet — click to open
