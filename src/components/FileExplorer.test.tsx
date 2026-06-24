@@ -55,6 +55,7 @@ vi.mock("@immediately-run/sdk", () => ({
   uploadFile: (path: string, bytes: Uint8Array) => h.uploadFile(path, bytes),
   startItemDrag: (item: unknown) => h.startItemDrag(item),
   cancelItemDrag: () => h.cancelItemDrag(),
+  unmountSpace: vi.fn(() => Promise.resolve()),
   // settings:all enumeration — default to none so the base file tree is unaffected.
   listSettingsApps: () => h.listSettingsApps(),
   openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
@@ -286,7 +287,7 @@ describe("R3-81 — drag to move within a filesystem", () => {
       dataTransfer: dataTransfer({ move: JSON.stringify({ from: "/spaces/s1/x.md", rootPath: "/spaces/s1" }) }),
     });
     expect(h.renameEntry).not.toHaveBeenCalled();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/filesystems/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/spaces/);
   });
 });
 

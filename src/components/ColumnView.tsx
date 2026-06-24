@@ -111,7 +111,7 @@ const Column = memo(function Column({
     <div className={"col" + (focused ? " col--focus" : "")} data-col={level}>
       <div className="col__head">
         {dir === null ? (
-          <span className="col__title">Mounts</span>
+          <span className="col__title">Spaces</span>
         ) : (
           mount && (
             <span className="scope__chip col__chip">

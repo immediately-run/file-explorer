@@ -37,6 +37,7 @@ import {
   openSettingsOf,
   startItemDrag,
   cancelItemDrag,
+  unmountSpace,
   type SandboxMount,
 } from "@immediately-run/sdk";
 import {
@@ -54,6 +55,7 @@ import {
   ExternalLink,
   Lock,
   Sparkles,
+  CircleArrowUp,
 } from "lucide-react";
 import { TreeStore, useNode, useActive } from "./treeStore";
 import ContextMenu, { type MenuAnchor, type MenuItem } from "./ContextMenu";
@@ -74,6 +76,8 @@ import {
   mountLabel,
   subtreeLabel,
   isWritableMount,
+  isEjectable,
+  mountSpaceId,
   isProtected,
   orderMounts,
   moveRejection,
@@ -281,14 +285,49 @@ const Scope = memo(function Scope({
   // v1: the explorer can write only the worktree, so "read-only" reflects what it
   // can actually do here (never a misleading "read-write" it can't honor).
   const ro = !writable;
+  // Eject (detach) — spaces / granted subtrees only, never the worktree or a
+  // settings store (SPACES_UI_SPEC §3, R-SPACES-3). Closes the space for this
+  // session; membership/grant are untouched and it re-adds via the powerbox.
+  const spaceId = mountSpaceId(mount);
+  const canEject = isEjectable(mount);
+  const [ejecting, setEjecting] = useState(false);
+  const onEject = useCallback(async () => {
+    if (!spaceId || ejecting) return;
+    setEjecting(true);
+    try {
+      // The mount disappears via the `useMounts()` subscription (reason
+      // `unmounted`); no manual list surgery. Typed errors degrade quietly.
+      await unmountSpace({ spaceId });
+    } catch {
+      setEjecting(false);
+    }
+  }, [spaceId, ejecting]);
+  const label = mountLabel(mount);
   return (
     <div className="mount">
       <div className="scope">
-        <span className="scope__name">{mountLabel(mount)}</span>
+        <span className="scope__name">{label}</span>
         <span className="scope__chip">
           {ro && <Lock size={11} aria-hidden="true" />}
           {subtreeLabel(mount)} · {ro ? "read-only" : "read-write"}
         </span>
+        {canEject && (
+          <button
+            type="button"
+            className="scope__eject"
+            onClick={onEject}
+            disabled={ejecting}
+            // "Eject", not "remove" — detach only; access is unchanged.
+            aria-label={`Eject ${label}`}
+            title={`Eject ${label} (closes it here; your access is unchanged)`}
+          >
+            {ejecting ? (
+              <Loader2 size={13} className="tnode__spin" aria-hidden="true" />
+            ) : (
+              <CircleArrowUp size={13} aria-hidden="true" />
+            )}
+          </button>
+        )}
       </div>
       <ul role="tree" aria-label={mountLabel(mount)} className="tree">
         <TreeNode
@@ -694,7 +733,7 @@ function FileExplorer() {
               <FolderTree size={20} aria-hidden="true" />
             </span>
             <h4>No files to show yet.</h4>
-            <p>Open a project or mount a space and its files appear here.</p>
+            <p>Open a project or add a space and its files appear here.</p>
           </div>
         ) : layout === "list" ? (
           <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activeFile} handlers={handlers} />

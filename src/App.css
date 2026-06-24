@@ -163,10 +163,38 @@
 /* ---- mount + scope header ---- */
 .mount { margin-bottom: 8px; }
 .scope {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 3px;
   padding: 8px 10px 6px;
+}
+/* Eject (detach) — top-right of the scope header. Spaces only (R-SPACES-3). */
+.scope__eject {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm, 6px);
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.scope__eject:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--panel-2);
+  border-color: var(--line);
+}
+.scope__eject:disabled { opacity: 0.55; cursor: default; }
+@media (pointer: coarse) {
+  .scope__eject { width: 40px; height: 40px; top: 0; right: 2px; }
 }
 .scope__name {
   font-size: 12px;
