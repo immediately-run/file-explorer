@@ -55,6 +55,7 @@ vi.mock("@immediately-run/sdk", () => ({
   uploadFile: (path: string, bytes: Uint8Array) => h.uploadFile(path, bytes),
   startItemDrag: (item: unknown) => h.startItemDrag(item),
   cancelItemDrag: () => h.cancelItemDrag(),
+  unmountSpace: vi.fn(() => Promise.resolve()),
   // settings:all enumeration — default to none so the base file tree is unaffected.
   listSettingsApps: () => h.listSettingsApps(),
   openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),

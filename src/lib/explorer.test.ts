@@ -9,6 +9,9 @@ import {
   mountMode,
   isWritableMount,
   isWorktree,
+  isSettingsMount,
+  isEjectable,
+  mountSpaceId,
   subtreeLabel,
   orderMounts,
   moveRejection,
@@ -39,6 +42,21 @@ describe("mount metadata (R3-79)", () => {
     expect(isWorktree(m({ type: "worktree", path: "/mnt/x" }))).toBe(true);
     expect(isWritableMount(m({ type: "worktree", path: "/mnt/x" }))).toBe(true);
     expect(isWritableMount(m({ type: "space", path: "/s/1", mode: "rw" }))).toBe(false);
+  });
+
+  it("eject (R-SPACES-3): spaces eject, worktree + settings never", () => {
+    // space mounts (universal `space:{id}` or a bare id) are ejectable
+    expect(mountSpaceId(m({ type: "firestore", path: "/mnt/a", id: "space:abc" }))).toBe("abc");
+    expect(mountSpaceId(m({ type: "firestore", path: "/mnt/a", id: "abc" }))).toBe("abc");
+    expect(isEjectable(m({ type: "firestore", path: "/mnt/a", id: "space:abc" }))).toBe(true);
+    // the worktree is "close the project", never an eject
+    expect(isEjectable(m({ type: "worktree", path: "/app" }))).toBe(false);
+    expect(mountSpaceId(m({ type: "worktree", path: "/app" }))).toBe(null);
+    // a per-app settings store is excluded entirely
+    expect(isSettingsMount(m({ type: "firestore", path: "/mnt/s", id: "settings:x" }))).toBe(true);
+    expect(isEjectable(m({ type: "firestore", path: "/mnt/s", id: "settings:x" }))).toBe(false);
+    // an id-less mount has nothing to unmount
+    expect(isEjectable(m({ type: "firestore", path: "/mnt/n" }))).toBe(false);
   });
 
   it("mountMode defaults to ro and subtreeLabel reads the first rule", () => {

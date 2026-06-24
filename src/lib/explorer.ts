@@ -30,6 +30,31 @@ export const toMountRel = (rootPath: string, absPath: string): string =>
 /** Is this the editor session's working tree (the repo being edited)? */
 export const isWorktree = (m: SandboxMount): boolean => m.type === "worktree";
 
+/** A per-app settings store mount (`settings:<app>`) — app-local configuration,
+ *  surfaced only by the elevated `settings:all` file-manager surface, never the
+ *  user's own spaces. Excluded from eject (SPACES_UI_SPEC §3, R-SPACES-3). */
+export const isSettingsMount = (m: SandboxMount): boolean =>
+  !!m.id?.startsWith("settings:");
+
+/** The spaceId of a space mount, for `unmountSpace`. Space mounts are announced
+ *  with the universal `space:{spaceId}` id; tolerate a bare id too. Returns null
+ *  for non-space mounts (worktree, settings). */
+export const mountSpaceId = (m: SandboxMount): string | null => {
+  if (isWorktree(m) || isSettingsMount(m)) return null;
+  const id = m.id?.trim();
+  if (!id) return null;
+  return id.startsWith("space:") ? id.slice("space:".length) : id;
+};
+
+/**
+ * Whether the explorer offers an EJECT (detach) affordance on this scope
+ * (SPACES_UI_SPEC §3, R-SPACES-3). Eject = `unmountSpace` — closes the space for
+ * this session only; it is NOT leave/revoke. Offered for spaces / granted
+ * subtrees; NEVER for the worktree (that is "close the project", a host action)
+ * or the per-app `settings:` store. Eject is independent of writability.
+ */
+export const isEjectable = (m: SandboxMount): boolean => mountSpaceId(m) !== null;
+
 /** A human-readable scope label: prefer the host-supplied name (R3-69), else the
  *  id, else a generic by type. Never the opaque `/mnt/{hash}` path. */
 export const mountLabel = (m: SandboxMount): string => {
