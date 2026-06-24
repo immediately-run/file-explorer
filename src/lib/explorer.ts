@@ -102,7 +102,7 @@ export const breadcrumbFor = (
   cwd: string | null,
   ordered: SandboxMount[],
 ): { mount: SandboxMount | null; crumbs: Crumb[] } => {
-  const root: Crumb = { label: "Mounts", path: null };
+  const root: Crumb = { label: "Spaces", path: null };
   if (!cwd) return { mount: null, crumbs: [root] };
   const mount = ordered.find((m) => cwd === m.path || cwd.startsWith(m.path + "/")) ?? null;
   if (!mount) return { mount: null, crumbs: [root] };
@@ -164,5 +164,5 @@ export const WRITE_ERR: Record<string, string> = {
   "not-found": "That file no longer exists.",
   forbidden: "You don’t have permission to change files here.",
   "invalid-params": "That name isn’t valid.",
-  "cross-mount": "Can’t move between filesystems yet.",
+  "cross-mount": "Can’t move between spaces yet.",
 };

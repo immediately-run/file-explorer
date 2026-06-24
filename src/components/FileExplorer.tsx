@@ -694,7 +694,7 @@ function FileExplorer() {
               <FolderTree size={20} aria-hidden="true" />
             </span>
             <h4>No files to show yet.</h4>
-            <p>Open a project or mount a space and its files appear here.</p>
+            <p>Open a project or add a space and its files appear here.</p>
           </div>
         ) : layout === "list" ? (
           <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activeFile} handlers={handlers} />

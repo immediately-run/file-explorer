@@ -286,7 +286,7 @@ describe("R3-81 — drag to move within a filesystem", () => {
       dataTransfer: dataTransfer({ move: JSON.stringify({ from: "/spaces/s1/x.md", rootPath: "/spaces/s1" }) }),
     });
     expect(h.renameEntry).not.toHaveBeenCalled();
-    expect(await screen.findByRole("alert")).toHaveTextContent(/filesystems/);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/spaces/);
   });
 });
 
