@@ -44,6 +44,9 @@ import {
   FolderTree,
   Folder,
   FolderOpen,
+  FolderGit2,
+  Users,
+  Settings as SettingsIcon,
   File as FileIcon,
   Loader2,
   ChevronsDownUp,
@@ -56,6 +59,7 @@ import {
   Lock,
   Sparkles,
   CircleArrowUp,
+  type LucideIcon,
 } from "lucide-react";
 import { TreeStore, useNode, useActive } from "./treeStore";
 import ContextMenu, { type MenuAnchor, type MenuItem } from "./ContextMenu";
@@ -74,7 +78,8 @@ import {
   dirOf,
   toMountRel,
   mountLabel,
-  subtreeLabel,
+  mountKind,
+  mountScopes,
   isWritableMount,
   isEjectable,
   mountSpaceId,
@@ -270,7 +275,17 @@ const TreeNode = memo(function TreeNode({
   );
 });
 
-/** A single mounted filesystem: scope header (name + subtree·mode chip) + its tree. */
+/** Provider/type icon for the App-scope header (R3-94 / PRINCIPALS §9 B1): the
+ *  working tree, a per-app settings store, a shared space, or a generic mount. */
+const MOUNT_ICON: Record<ReturnType<typeof mountKind>, LucideIcon> = {
+  worktree: FolderGit2,
+  settings: SettingsIcon,
+  space: Users,
+  other: Folder,
+};
+
+/** A single mounted filesystem: scope header (type icon + name + per-subtree
+ *  mode chips) + its tree. */
 const Scope = memo(function Scope({
   mount,
   store,
@@ -282,9 +297,6 @@ const Scope = memo(function Scope({
 }) {
   const writable = isWritableMount(mount);
   const mountId = mount.id ?? mount.path;
-  // v1: the explorer can write only the worktree, so "read-only" reflects what it
-  // can actually do here (never a misleading "read-write" it can't honor).
-  const ro = !writable;
   // Eject (detach) — spaces / granted subtrees only, never the worktree or a
   // settings store (SPACES_UI_SPEC §3, R-SPACES-3). Closes the space for this
   // session; membership/grant are untouched and it re-adds via the powerbox.
@@ -303,14 +315,29 @@ const Scope = memo(function Scope({
     }
   }, [spaceId, ejecting]);
   const label = mountLabel(mount);
+  // The granted subtree scopes (PRINCIPALS §9 B1 / FILE_EXPLORER §2): one chip per
+  // subtree, each with its effective (worktree-rw / else-ro) mode. A path outside
+  // every scope is simply absent — no existence oracle.
+  const scopes = mountScopes(mount);
+  const TypeIcon = MOUNT_ICON[mountKind(mount)];
   return (
     <div className="mount">
       <div className="scope">
-        <span className="scope__name">{label}</span>
-        <span className="scope__chip">
-          {ro && <Lock size={11} aria-hidden="true" />}
-          {subtreeLabel(mount)} · {ro ? "read-only" : "read-write"}
-        </span>
+        <div className="scope__head">
+          <TypeIcon className="scope__icon" size={13} aria-hidden="true" />
+          <span className="scope__name">{label}</span>
+        </div>
+        <div className="scope__chips">
+          {scopes.map((s) => {
+            const sro = s.mode === "ro";
+            return (
+              <span key={s.subtree} className="scope__chip">
+                {sro && <Lock size={11} aria-hidden="true" />}
+                {s.subtree} · {sro ? "read-only" : "read-write"}
+              </span>
+            );
+          })}
+        </div>
         {canEject && (
           <button
             type="button"

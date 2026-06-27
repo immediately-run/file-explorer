@@ -196,6 +196,16 @@
 @media (pointer: coarse) {
   .scope__eject { width: 40px; height: 40px; top: 0; right: 2px; }
 }
+/* Type icon + name on one row; chips wrap below. The eject button is absolute
+   (top-right) so the head row reserves space for it via padding-right. */
+.scope__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-right: 26px;
+}
+.scope__icon { flex: none; color: var(--ink-3); }
 .scope__name {
   font-size: 12px;
   font-weight: 600;
@@ -205,6 +215,13 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* One chip per granted subtree (R3-94); wrap when a mount grants several. */
+.scope__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
 }
 .scope__chip {
   display: inline-flex;

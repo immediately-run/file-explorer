@@ -13,6 +13,8 @@ import {
   isEjectable,
   mountSpaceId,
   subtreeLabel,
+  mountKind,
+  mountScopes,
   orderMounts,
   moveRejection,
 } from "./explorer";
@@ -63,6 +65,41 @@ describe("mount metadata (R3-79)", () => {
     expect(mountMode(m({ type: "space", path: "/s/1" }))).toBe("ro");
     expect(subtreeLabel(m({ type: "space", path: "/s/1", rules: [{ subtree: "/notes", mode: "ro" }] }))).toBe("/notes");
     expect(subtreeLabel(m({ type: "space", path: "/s/1" }))).toBe("/");
+  });
+
+  it("mountKind classifies the provider/type for the header icon (R3-94)", () => {
+    expect(mountKind(m({ type: "worktree", path: "/app" }))).toBe("worktree");
+    expect(mountKind(m({ type: "firestore", path: "/mnt/s", id: "settings:x" }))).toBe("settings");
+    expect(mountKind(m({ type: "firestore", path: "/mnt/a", id: "space:abc" }))).toBe("space");
+    expect(mountKind(m({ type: "firestore", path: "/mnt/n" }))).toBe("other");
+  });
+
+  it("mountScopes lists each granted subtree, root-first, deduped (R3-94)", () => {
+    const out = mountScopes(
+      m({
+        type: "firestore",
+        path: "/mnt/a",
+        id: "space:abc",
+        rules: [
+          { subtree: "/notes", mode: "rw" },
+          { subtree: "/", mode: "ro" },
+          { subtree: "/notes", mode: "ro" }, // duplicate subtree → collapsed
+        ],
+      }),
+    );
+    expect(out).toEqual([
+      { subtree: "/", mode: "ro" },
+      { subtree: "/notes", mode: "ro" }, // non-worktree → effective ro, never the granted rw
+    ]);
+  });
+
+  it("mountScopes: the worktree shows the granted mode (rw); rules absent → whole-mount ro", () => {
+    expect(mountScopes(m({ type: "worktree", path: "/app" }))).toEqual([{ subtree: "/", mode: "rw" }]);
+    expect(mountScopes(m({ type: "space", path: "/s/1" }))).toEqual([{ subtree: "/", mode: "ro" }]);
+    // a non-worktree grant of rw is still rendered read-only (never shown-then-EROFS)
+    expect(
+      mountScopes(m({ type: "space", path: "/s/1", mode: "rw", rules: [{ subtree: "/", mode: "rw" }] })),
+    ).toEqual([{ subtree: "/", mode: "ro" }]);
   });
 
   it("orders worktree first, then spaces, then others, A→Z", () => {
