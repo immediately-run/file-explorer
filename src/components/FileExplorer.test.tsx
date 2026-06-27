@@ -226,6 +226,48 @@ describe("R3-79 — multiple mounts", () => {
   });
 });
 
+// --- R3-94: App-scope per-mount header (PRINCIPALS §9 B1 / FILE_EXPLORER §2) ----
+describe("R3-94 — app-scope per-mount header", () => {
+  it("lists one mode chip per granted subtree, each read-only on a non-worktree mount", async () => {
+    h.mounts = [
+      {
+        type: "firestore",
+        path: "/spaces/s1",
+        id: "space:s1",
+        name: "Shared notes",
+        mode: "ro",
+        rules: [
+          { subtree: "/notes", mode: "rw" },
+          { subtree: "/drafts", mode: "ro" },
+        ],
+      } as never,
+    ];
+    render(<FileExplorer />);
+    const scope = (await screen.findByRole("tree", { name: "Shared notes" })).closest(
+      ".mount",
+    ) as HTMLElement;
+    const chips = within(scope).getAllByText(/read-only|read-write/);
+    // One chip per subtree, and a granted `rw` subtree is still shown read-only (v1:
+    // only the worktree is writable — never shown-then-EROFS).
+    // Ordered root-first then A→Z (here: /drafts before /notes).
+    expect(chips.map((c) => c.textContent)).toEqual([
+      expect.stringContaining("/drafts · read-only"),
+      expect.stringContaining("/notes · read-only"),
+    ]);
+  });
+
+  it("the worktree header shows a single read-write whole-mount chip", async () => {
+    h.mounts = [worktree()];
+    render(<FileExplorer />);
+    const scope = (await screen.findByRole("tree", { name: "repo" })).closest(
+      ".mount",
+    ) as HTMLElement;
+    const chips = within(scope).getAllByText(/read-only|read-write/);
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toContain("/ · read-write");
+  });
+});
+
 // --- R3-80: context menu ----------------------------------------------------
 describe("R3-80 — context menu", () => {
   it("right-clicking a worktree file opens a menu with Open + write actions", async () => {

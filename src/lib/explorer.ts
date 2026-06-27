@@ -83,10 +83,51 @@ export const mountMode = (m: SandboxMount): "ro" | "rw" => m.mode ?? "ro";
  */
 export const isWritableMount = (m: SandboxMount): boolean => isWorktree(m);
 
-/** A short subtree label for the scope chip ("/" for a whole-mount grant). */
+/** A short subtree label for the scope chip ("/" for a whole-mount grant). Used by
+ *  the single-chip layouts (breadcrumb / columns) where only the current directory's
+ *  owning mount is shown; the per-mount header uses {@link mountScopes} for the full
+ *  list. */
 export const subtreeLabel = (m: SandboxMount): string => {
   const rule = m.rules?.[0];
   return rule?.subtree && rule.subtree !== "/" ? rule.subtree : "/";
+};
+
+/** The provider/type kind of a mount, for the App-scope header icon (PRINCIPALS
+ *  §9 B1). A classifier only — the icon mapping lives in the view. */
+export type MountKind = "worktree" | "settings" | "space" | "other";
+export const mountKind = (m: SandboxMount): MountKind =>
+  isWorktree(m) ? "worktree" : isSettingsMount(m) ? "settings" : mountSpaceId(m) ? "space" : "other";
+
+/** One display row in the App-scope header: a granted subtree and the mode shown
+ *  there (PRINCIPALS §9 B1 / FILE_EXPLORER §2). */
+export interface MountScope {
+  subtree: string;
+  mode: "ro" | "rw";
+}
+
+/**
+ * The granted scopes of a mount as display rows — one per `rules` entry, so a mount
+ * with several subtrees lists each (FILE_EXPLORER §2 step 2). Falls back to a single
+ * whole-mount row from `m.mode` when `rules` is absent (older host / the primary repo
+ * mount). The displayed mode is the EFFECTIVE mode: v1 only the worktree is writable,
+ * so every non-worktree scope renders `ro` regardless of the granted rule mode — the
+ * badge never implies a write the explorer won't honor (FILE_EXPLORER §2 step 3; never
+ * shown-then-`EROFS`). De-duped by subtree and ordered root-first then A→Z.
+ */
+export const mountScopes = (m: SandboxMount): MountScope[] => {
+  // Effective mode is per-mount in v1 (only the worktree is writable), so every
+  // scope of a non-worktree mount renders `ro` regardless of the granted rule mode.
+  const mode: "ro" | "rw" = isWritableMount(m) ? "rw" : "ro";
+  const rules = m.rules?.length ? m.rules : [{ subtree: "/", mode }];
+  const seen = new Map<string, MountScope>();
+  for (const r of rules) {
+    const subtree = r.subtree && r.subtree.trim() && r.subtree !== "/" ? r.subtree.trim() : "/";
+    if (seen.has(subtree)) continue;
+    seen.set(subtree, { subtree, mode });
+  }
+  return [...seen.values()].sort((a, b) =>
+    a.subtree === "/" ? -1 : b.subtree === "/" ? 1 : a.subtree.localeCompare(b.subtree),
+  );
 };
 
 /** Order mounts for display: worktree first, then spaces, then others, A→Z. */
