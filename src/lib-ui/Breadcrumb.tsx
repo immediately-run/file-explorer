@@ -4,8 +4,8 @@
 // directory, and read-only vs writable reads the same as the tree's scope header.
 // Segments are buttons that navigate up; the last (current) segment is inert.
 import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
-import type { SandboxMount } from "@immediately-run/sdk";
-import { subtreeLabel, isWritableMount, type Crumb } from "../lib/explorer";
+import { subtreeLabel, isWritableMount, type Crumb } from "./explorer";
+import type { ExplorerRoot } from "./types";
 
 function Breadcrumb({
   crumbs,
@@ -13,7 +13,7 @@ function Breadcrumb({
   onNavigate,
 }: {
   crumbs: Crumb[];
-  mount: SandboxMount | null;
+  mount: ExplorerRoot | null;
   onNavigate: (path: string | null) => void;
 }) {
   const parent = crumbs.length > 1 ? crumbs[crumbs.length - 2] : null;

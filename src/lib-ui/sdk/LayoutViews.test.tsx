@@ -5,7 +5,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DirEntry } from "../fs/mountFs";
+import type { DirEntry } from "../types";
 
 const TREE: Record<string, DirEntry[]> = {
   "/mnt/abc": [
@@ -42,12 +42,16 @@ vi.mock("@immediately-run/sdk", () => ({
   openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
 }));
 
-vi.mock("../fs/mountFs", () => ({
+vi.mock("./mountFs", () => ({
   readdir: (path: string) => h.readdir(path),
   readFile: () => Promise.resolve(new Uint8Array([1, 2, 3])),
+  sdkFsSource: {
+    readdir: (path: string) => h.readdir(path),
+    readFile: () => Promise.resolve(new Uint8Array([1, 2, 3])),
+  },
 }));
 
-import FileExplorer from "./FileExplorer";
+import FileExplorer from "./SdkFileExplorer";
 
 const worktree = (id = "repo") => ({ type: "worktree", path: "/mnt/abc", id });
 

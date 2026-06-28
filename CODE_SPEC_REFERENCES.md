@@ -16,10 +16,11 @@ lives in the host (core_concepts §2), never in this app. This is why the afford
 appear only on a **writable** mount (v1: the worktree) and never surface `EROFS` as
 UX — the host adjudicates writability, the app reflects it.
 
-- `src/components/FileExplorer.tsx` (module docstring) — the §4 `editor:open` /
-  `editor:write` intent indirection.
-- SDK calls `deleteEntry` / `renameEntry` / `uploadFile` / `createFile` are
-  host-gated intents, not local writes.
+- `src/lib-ui/sdk/actions.ts` (`makeSdkActions`) — the §4 `editor:open` /
+  `editor:write` intent indirection. (The headless `src/lib-ui/FileExplorerView.tsx`
+  only NAMES the path through injected `actions`; the SDK calls live in the adapter.)
+- SDK calls `deleteEntry` / `renameEntry` / `uploadFile` / `createFile` (in
+  `src/lib-ui/sdk/actions.ts`) are host-gated intents, not local writes.
 
 ## The `llm.chat@1` "Summarize" fork feature
 
@@ -27,7 +28,7 @@ UX — the host adjudicates writability, the app reflects it.
 slot. `ui:overlay` self-overlay is the richer follow-up (`SERVICE_PROVIDERS_SPEC §6.3`,
 proposed) — today the modal is drawn in-iframe.
 
-**Mapping:** `src/components/SummaryModal.tsx` calls `chat()` (needs only the
+**Mapping:** `src/lib-ui/sdk/SummaryModal.tsx` calls `chat()` (needs only the
 `llm:chat` capability the fork consented), streams the summary, and can save it next
 to the source file (gated on a writable mount). The "provider-agnostic LLM" wording
 means the **LLM service provider** (Anthropic/OpenAI), core_concepts §6 sense — not
@@ -35,15 +36,17 @@ the app-identity source host.
 
 ## Multi-root tree store
 
-**Spec:** `FILE_EXPLORER_SPEC §2` (multiple mounts) — `src/components/treeStore.ts`
-keeps one scope-headed tree per mount (worktree + spaces + granted subtrees).
+**Spec:** `FILE_EXPLORER_SPEC §2` (multiple mounts) — `src/lib-ui/treeStore.ts`
+keeps one scope-headed tree per root (worktree + spaces + granted subtrees). It
+reads entries through an injected `FsSource` (the SDK adapter's `sdkFsSource`), so
+the store is pure of any concrete fs.
 
 ---
 
 ## Recorded findings (code-verification pass, 2026-06)
 
 - **DONE-BUT-DIVERGENT (CRIT, pre-existing on origin/main) — `chat` not exported
-  by the pinned SDK.** The shipped "Summarize" feature (`src/components/SummaryModal.tsx:2`
+  by the pinned SDK.** The shipped "Summarize" feature (`src/lib-ui/sdk/SummaryModal.tsx:2`
   `import { chat } from "@immediately-run/sdk"`, added in PR #9) does **not**
   type-check against the repo's own pinned `@immediately-run/sdk@0.11.0`, which has
   no `chat` export → `npm run build` fails with `TS2305` **on a clean origin/main

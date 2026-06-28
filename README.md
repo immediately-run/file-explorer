@@ -10,5 +10,23 @@ the active mounts through the SDK (`useMounts`) and file entries from the sandbo
 filesystem at the mount path. It explores only granted mounts, never the project
 you're editing: a sandboxed app can only see what its mounts expose.
 
-Read-only by design (no create / rename / delete). Loaded into a chrome region
-by the host; not meant to be run standalone.
+Loaded into a chrome region by the host; not meant to be run standalone.
+
+## Library structure (file-explorer-library extraction)
+
+The filesystem-browsing UI is a **headless library** under `src/lib-ui/` with the
+SDK wiring isolated in `src/lib-ui/sdk/`:
+
+- **`src/lib-ui/`** — the headless core: `FileExplorerView` (the view), the
+  `TreeStore`, the four layouts, the path/metadata helpers, and the injected
+  interfaces (`ExplorerRoot`, `FsSource`, `ExplorerActions`) in `types.ts`. It
+  imports **no** `@immediately-run/sdk`. Public surface: `src/lib-ui/index.ts`.
+- **`src/lib-ui/sdk/`** — the SDK adapter: `useSdkRoots()` (maps `useMounts()` →
+  `ExplorerRoot[]`), `sdkFsSource` (the ZenFS accessor), `makeSdkActions()` (the
+  `editor:open`/`editor:write` + drag-out + eject wiring), the "Summarize" feature,
+  and `SdkFileExplorer` — the fully-assembled shipped app. Barrel:
+  `src/lib-ui/sdk/index.ts`. `src/App.tsx` renders `<SdkFileExplorer/>`.
+
+**Purity guard:** `npm run check:core` (`scripts/check-core-pure.mjs`) fails if any
+file under `src/lib-ui/` **except** `src/lib-ui/sdk/` imports `@immediately-run/sdk`.
+Run it alongside `npm run lint` / `npm run build` / `npm test` in CI.

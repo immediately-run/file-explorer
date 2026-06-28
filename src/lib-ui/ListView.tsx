@@ -6,15 +6,15 @@
 // `option` rows; arrow keys roam the rows.
 import { memo, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
-import type { SandboxMount } from "@immediately-run/sdk";
 import { TreeStore, useSelected } from "./treeStore";
 import FileGlyph from "./FileGlyph";
 import Breadcrumb from "./Breadcrumb";
-import { useBrowse, type BrowseRow } from "../hooks/useBrowse";
-import { useLongPress } from "../hooks/useLongPress";
-import { useRowInteractions, type NodeHandlers } from "../hooks/useRowInteractions";
-import { breadcrumbFor, toMountRel, isProtected } from "../lib/explorer";
-import { fileTypeLabel, compareEntries, type SortKey } from "../lib/entryMeta";
+import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
+import { useLongPress } from "./hooks/useLongPress";
+import { useRowInteractions, type NodeHandlers } from "./hooks/useRowInteractions";
+import { breadcrumbFor, toMountRel, isProtected } from "./explorer";
+import { fileTypeLabel, compareEntries, type SortKey } from "./entryMeta";
+import type { ExplorerRoot } from "./types";
 
 const ListRow = memo(function ListRow({
   row,
@@ -90,7 +90,7 @@ function ListView({
   handlers,
 }: {
   store: TreeStore;
-  ordered: SandboxMount[];
+  ordered: ExplorerRoot[];
   cwd: string | null;
   setCwd: (path: string | null) => void;
   activeFile: string | null;

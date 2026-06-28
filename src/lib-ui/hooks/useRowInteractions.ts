@@ -8,27 +8,22 @@
 // flag; the layout supplies its own onClick/onKeyDown (selection/navigation
 // differ per layout) and renders the per-row delete affordance.
 import { useState } from "react";
-import { cancelItemDrag } from "@immediately-run/sdk";
-import { MOVE_MIME } from "../lib/explorer";
+import { MOVE_MIME } from "../explorer";
+import type { RowCtx } from "../types";
 
-/** Everything a row needs to identify itself to the shared handlers. */
-export interface RowCtx {
-  absPath: string;
-  isDir: boolean;
-  rootPath: string;
-  mountId: string;
-  writable: boolean;
-}
+export type { RowCtx };
 
 /** The stable per-explorer callback bundle handed to every row. Each callback
- *  takes explicit args so one instance serves every scope/layout. */
+ *  takes explicit args so one instance serves every scope/layout. The one host
+ *  call this used to make directly (`cancelItemDrag`) is now the injected
+ *  `cancelDragOut` callback (Phase 02 §C.2), so this hook holds NO SDK import. */
 export interface NodeHandlers {
-  onOpenFile: (mountRel: string) => void;
   onActivate: (absPath: string, isDir: boolean) => void;
   onMenu: (e: { clientX: number; clientY: number }, ctx: RowCtx) => void;
   onMoveDrop: (fromAbs: string, fromRoot: string, targetDir: string, targetRoot: string) => void;
   onUploadDrop: (files: File[], targetDir: string, writable: boolean) => void;
   beginDragOut: (absPath: string, isDir: boolean, mountId: string, rootPath: string) => void;
+  cancelDragOut: () => void;
   onDelete: (absPath: string, isDir: boolean, rootPath: string) => void;
 }
 
@@ -72,7 +67,7 @@ export function useRowInteractions(
     e.dataTransfer.effectAllowed = "copyMove";
     handlers.beginDragOut(absPath, isDir, mountId, rootPath);
   };
-  const onDragEnd = () => cancelItemDrag();
+  const onDragEnd = () => handlers.cancelDragOut();
 
   // A directory row is a drop target for internal moves and OS-file uploads.
   const onDragOver = (e: React.DragEvent) => {
@@ -95,7 +90,7 @@ export function useRowInteractions(
     e.preventDefault();
     e.stopPropagation();
     setDropTarget(false);
-    cancelItemDrag(); // the drop landed inside the explorer → not a drag-out
+    handlers.cancelDragOut(); // the drop landed inside the explorer → not a drag-out
     if (move) {
       const { from, rootPath: fromRoot } = JSON.parse(move) as { from: string; rootPath: string };
       handlers.onMoveDrop(from, fromRoot, absPath, rootPath);

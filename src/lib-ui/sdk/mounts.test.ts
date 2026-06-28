@@ -1,10 +1,8 @@
-// Pure-helper unit tests (R3-79..R3-83). No DOM, no SDK.
+// Mount-classification unit tests (R3-79, R3-94, R-SPACES-3). These exercise the
+// SDK-shape helpers and the SandboxMount→ExplorerRoot mapper — the parity contract
+// for the classification logic that used to live in `lib/explorer.ts`.
 import { describe, expect, it } from "vitest";
 import {
-  joinPath,
-  basename,
-  dirOf,
-  toMountRel,
   mountLabel,
   mountMode,
   isWritableMount,
@@ -16,22 +14,11 @@ import {
   mountKind,
   mountScopes,
   orderMounts,
-  moveRejection,
-} from "./explorer";
+  toExplorerRoot,
+} from "./mounts";
 import type { SandboxMount } from "@immediately-run/sdk";
 
 const m = (o: Partial<SandboxMount> & { type: string; path: string }): SandboxMount => o as SandboxMount;
-
-describe("path helpers", () => {
-  it("joinPath / basename / dirOf / toMountRel", () => {
-    expect(joinPath("/a/b/", "c")).toBe("/a/b/c");
-    expect(basename("/a/b/c.ts")).toBe("c.ts");
-    expect(dirOf("/a/b/c.ts")).toBe("/a/b");
-    expect(dirOf("/a")).toBe("/");
-    expect(toMountRel("/mnt/abc", "/mnt/abc/src/App.tsx")).toBe("/src/App.tsx");
-    expect(toMountRel("/mnt/abc", "/mnt/abc")).toBe("/");
-  });
-});
 
 describe("mount metadata (R3-79)", () => {
   it("labels prefer name, then id, then a type fallback", () => {
@@ -47,17 +34,13 @@ describe("mount metadata (R3-79)", () => {
   });
 
   it("eject (R-SPACES-3): spaces eject, worktree + settings never", () => {
-    // space mounts (universal `space:{id}` or a bare id) are ejectable
     expect(mountSpaceId(m({ type: "firestore", path: "/mnt/a", id: "space:abc" }))).toBe("abc");
     expect(mountSpaceId(m({ type: "firestore", path: "/mnt/a", id: "abc" }))).toBe("abc");
     expect(isEjectable(m({ type: "firestore", path: "/mnt/a", id: "space:abc" }))).toBe(true);
-    // the worktree is "close the project", never an eject
     expect(isEjectable(m({ type: "worktree", path: "/app" }))).toBe(false);
     expect(mountSpaceId(m({ type: "worktree", path: "/app" }))).toBe(null);
-    // a per-app settings store is excluded entirely
     expect(isSettingsMount(m({ type: "firestore", path: "/mnt/s", id: "settings:x" }))).toBe(true);
     expect(isEjectable(m({ type: "firestore", path: "/mnt/s", id: "settings:x" }))).toBe(false);
-    // an id-less mount has nothing to unmount
     expect(isEjectable(m({ type: "firestore", path: "/mnt/n" }))).toBe(false);
   });
 
@@ -96,7 +79,6 @@ describe("mount metadata (R3-79)", () => {
   it("mountScopes: the worktree shows the granted mode (rw); rules absent → whole-mount ro", () => {
     expect(mountScopes(m({ type: "worktree", path: "/app" }))).toEqual([{ subtree: "/", mode: "rw" }]);
     expect(mountScopes(m({ type: "space", path: "/s/1" }))).toEqual([{ subtree: "/", mode: "ro" }]);
-    // a non-worktree grant of rw is still rendered read-only (never shown-then-EROFS)
     expect(
       mountScopes(m({ type: "space", path: "/s/1", mode: "rw", rules: [{ subtree: "/", mode: "rw" }] })),
     ).toEqual([{ subtree: "/", mode: "ro" }]);
@@ -113,19 +95,33 @@ describe("mount metadata (R3-79)", () => {
   });
 });
 
-describe("moveRejection (R3-81)", () => {
-  const root = "/mnt/abc";
-  it("allows a move into a sibling directory", () => {
-    expect(moveRejection("/mnt/abc/a.ts", "/mnt/abc/src", root, root)).toBeNull();
+describe("toExplorerRoot maps a SandboxMount onto ExplorerRoot", () => {
+  it("worktree → writable, kind worktree, not ejectable", () => {
+    const root = toExplorerRoot(m({ type: "worktree", path: "/mnt/x", id: "repo" }));
+    expect(root).toMatchObject({
+      id: "repo",
+      path: "/mnt/x",
+      label: "repo", // id wins over the type fallback (mountLabel precedence)
+      kind: "worktree",
+      writable: true,
+      ejectable: false,
+      scopes: [{ subtree: "/", mode: "rw" }],
+    });
+    expect(root.spaceId).toBeUndefined();
   });
-  it("rejects a no-op move into the current directory", () => {
-    expect(moveRejection("/mnt/abc/src/a.ts", "/mnt/abc/src", root, root)).toBe("same-dir");
-  });
-  it("rejects dropping a directory onto itself or a descendant", () => {
-    expect(moveRejection("/mnt/abc/src", "/mnt/abc/src", root, root)).toBe("into-self");
-    expect(moveRejection("/mnt/abc/src", "/mnt/abc/src/sub", root, root)).toBe("into-self");
-  });
-  it("rejects a cross-mount move", () => {
-    expect(moveRejection("/mnt/abc/a.ts", "/spaces/1/x", root, "/spaces/1")).toBe("cross-mount");
+
+  it("space → read-only, kind space, ejectable with spaceId", () => {
+    const root = toExplorerRoot(
+      m({ type: "firestore", path: "/spaces/s1", id: "space:s1", name: "Shared notes", mode: "ro" }),
+    );
+    expect(root).toMatchObject({
+      id: "space:s1",
+      path: "/spaces/s1",
+      label: "Shared notes",
+      kind: "space",
+      writable: false,
+      ejectable: true,
+      spaceId: "s1",
+    });
   });
 });

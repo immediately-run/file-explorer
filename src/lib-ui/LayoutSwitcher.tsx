@@ -5,7 +5,7 @@
 // under a width threshold (CSS). ARIA radiogroup so it announces as one control
 // with four mutually-exclusive options.
 import { FolderTree, List as ListIcon, Columns3, LayoutGrid, type LucideIcon } from "lucide-react";
-import type { Layout } from "../hooks/useLayout";
+import type { Layout } from "./types";
 
 const OPTIONS: { value: Layout; label: string; tip: string; Icon: LucideIcon }[] = [
   { value: "tree", label: "Tree", tip: "Tree view", Icon: FolderTree },

@@ -1,45 +1,16 @@
-// The file explorer (FILE_EXPLORER_SPEC; UI_AS_APPS_SPEC §4/§3.5; migrate-sidebars
-// Phase 03+04). A tree view of EVERY filesystem the host mounts into this app — the
-// editor session's working tree (`type:'worktree'`) PLUS any spaces / granted
-// subtrees — one scope-headed tree per mount (R3-79). Clicking a file opens it in the
-// editor (`openInEditor`, the §4 `editor:open` intent). Create / rename / delete /
-// upload / move go through the §4 `editor:write` gated host actions: the app NAMES a
-// path and the HOST performs the COW write — the COW/journal stays in the host
-// (§2/§4), the app holds no write port. Those affordances appear only on a WRITABLE
-// mount (v1: the worktree); other mounts are read-only (per-mount write is the §3.5
-// open item) and never surface `EROFS` as UX.
+// The headless file-explorer view (00-overview §3.2; Phase 02 §A). This is the
+// former `FileExplorer.tsx` orchestrator with EVERY host/SDK call severed into an
+// injected prop: it reads roots through `roots: ExplorerRoot[]`, bytes/entries
+// through `fs: FsSource`, the active file through `activePath`, and emits intents
+// through `actions`/`onActivate`/`onSelect`. It imports NO SDK — the SDK adapter
+// (`sdk/SdkFileExplorer.tsx`) wires all of that up and re-creates the shipped app.
+// A non-SDK consumer (file-commander) supplies its own fs/roots and simply omits
+// the actions it doesn't implement (the affordance then hides).
 //
-// Gestures over those shipped actions:
-//  - Context menu (R3-80): right-click, or a 3s long-press on touch.
-//  - Move (R3-81): drag a row onto a directory in the SAME mount → `renameEntry`.
-//  - Upload (R3-82): drop OS files onto a directory → `uploadFile` into that dir.
-//  - Drag-out (R3-83): dragging a row also asks the host to begin a cross-app drag
-//    (`startItemDrag`) so the user can drop it into the previewed app; if the drop
-//    instead lands inside the explorer it is an internal move and the drag-out is
-//    cancelled.
-//
-// Tree state (expansion, the lazily-read child cache, the selected path) lives in a
-// single multi-root path-keyed `TreeStore` (`treeStore.ts`), so it survives re-renders
-// and mount re-announcements. `TreeNode` is `React.memo`'d with stable callbacks, so a
-// parent re-render doesn't cascade into the whole tree (FX-1). FX-4b: the file open in
-// the neighboring editor is highlighted (`.tnode--active`) via `useEditorContext().activeFile`.
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  useMounts,
-  useEditorContext,
-  openInEditor,
-  createFile,
-  createFolder,
-  deleteEntry,
-  renameEntry,
-  uploadFile,
-  listSettingsApps,
-  openSettingsOf,
-  startItemDrag,
-  cancelItemDrag,
-  unmountSpace,
-  type SandboxMount,
-} from "@immediately-run/sdk";
+// Behavior is byte-for-byte the same as the pre-extraction app: the same four
+// layouts, the same `TreeStore` + `useLayout`, the same context menu, breadcrumb,
+// scope headers, gestures, and the FX-1/FX-2/FX-4a/FX-4b invariants.
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   FolderTree,
   Folder,
@@ -57,21 +28,18 @@ import {
   Upload,
   ExternalLink,
   Lock,
-  Sparkles,
   CircleArrowUp,
   type LucideIcon,
 } from "lucide-react";
 import { TreeStore, useNode, useActive } from "./treeStore";
-import ContextMenu, { type MenuAnchor, type MenuItem } from "./ContextMenu";
-import SummaryModal, { type SummaryTarget } from "./SummaryModal";
+import ContextMenu from "./ContextMenu";
 import LayoutSwitcher from "./LayoutSwitcher";
 import ListView from "./ListView";
 import IconGrid from "./IconGrid";
 import ColumnView from "./ColumnView";
-import { useLongPress } from "../hooks/useLongPress";
-import { useLayout, type Layout } from "../hooks/useLayout";
-import { type NodeHandlers, type RowCtx } from "../hooks/useRowInteractions";
-import { readFile } from "../fs/mountFs";
+import { useLongPress } from "./hooks/useLongPress";
+import { useLayout } from "./hooks/useLayout";
+import { type NodeHandlers } from "./hooks/useRowInteractions";
 import {
   joinPath,
   basename,
@@ -82,14 +50,46 @@ import {
   mountScopes,
   isWritableMount,
   isEjectable,
-  mountSpaceId,
   isProtected,
   orderMounts,
   moveRejection,
   MOVE_MIME,
-  MAX_UPLOAD_BYTES,
   WRITE_ERR,
-} from "../lib/explorer";
+} from "./explorer";
+import type {
+  ExplorerRoot,
+  FsSource,
+  ExplorerActions,
+  Layout,
+  MenuAnchor,
+  MenuItem,
+  RowCtx,
+} from "./types";
+
+/** Optional extension slots + chrome supplied by a consumer. */
+export interface FileExplorerViewProps {
+  roots: ExplorerRoot[];
+  fs: FsSource;
+  /** Optional privileged operations; an omitted action hides its affordance. */
+  actions?: ExplorerActions;
+  /** Controlled highlight (the editor's open file, mount-relative). */
+  activePath?: string | null;
+  selectionMode?: "single" | "multi" | "none";
+  onSelect?: (root: ExplorerRoot, relPath: string) => void;
+  onActivate?: (root: ExplorerRoot, relPath: string, isDir: boolean) => void;
+  /** Controlled layout, or omit and pass `storageKey` for the persisted default. */
+  layout?: Layout;
+  onLayoutChange?: (next: Layout) => void;
+  storageKey?: string;
+  /** Append items to a row's context menu (e.g. "Summarize…"). */
+  extraMenuItems?: (ctx: RowCtx) => MenuItem[];
+  /** Render an accessory next to a row's delete button. */
+  renderRowAccessory?: (ctx: RowCtx) => ReactNode;
+  /** Panel header chrome. */
+  header?: { title?: string; glyph?: ReactNode; actions?: ReactNode };
+  /** Replaces the built-in "no files" empty state. */
+  emptyState?: ReactNode;
+}
 
 const TreeNode = memo(function TreeNode({
   path,
@@ -101,6 +101,7 @@ const TreeNode = memo(function TreeNode({
   writable,
   store,
   handlers,
+  renderRowAccessory,
 }: {
   path: string;
   name: string;
@@ -111,6 +112,7 @@ const TreeNode = memo(function TreeNode({
   writable: boolean;
   store: TreeStore;
   handlers: NodeHandlers;
+  renderRowAccessory?: (ctx: RowCtx) => ReactNode;
 }) {
   const { expanded, selected, errored, entries } = useNode(store, path);
   const open = isDir && expanded;
@@ -123,10 +125,10 @@ const TreeNode = memo(function TreeNode({
 
   const repoRel = toMountRel(rootPath, path);
   // Active highlight via a per-node store subscription (NOT a threaded prop), so
-  // an editor-context activeFile change re-renders only the affected rows (FX-4b).
+  // an active-path change re-renders only the affected rows (FX-4b).
   const activeMatch = useActive(store, repoRel);
   const active = !isDir && activeMatch;
-  const deletable = writable && !isProtected(repoRel);
+  const deletable = writable && !isProtected(repoRel) && !!handlers.onDelete;
   const rowCtx: RowCtx = { absPath: path, isDir, rootPath, mountId, writable };
 
   const longPress = useLongPress((x, y) => handlers.onMenu({ clientX: x, clientY: y }, rowCtx));
@@ -154,7 +156,7 @@ const TreeNode = memo(function TreeNode({
     e.dataTransfer.effectAllowed = "copyMove";
     handlers.beginDragOut(path, isDir, mountId, rootPath);
   };
-  const onDragEnd = () => cancelItemDrag();
+  const onDragEnd = () => handlers.cancelDragOut();
 
   // A directory row is a drop target for internal moves and OS-file uploads.
   const onDragOver = (e: React.DragEvent) => {
@@ -177,7 +179,7 @@ const TreeNode = memo(function TreeNode({
     e.preventDefault();
     e.stopPropagation();
     setDropTarget(false);
-    cancelItemDrag(); // the drop landed inside the explorer → not a drag-out
+    handlers.cancelDragOut(); // the drop landed inside the explorer → not a drag-out
     if (move) {
       const { from, rootPath: fromRoot } = JSON.parse(move) as { from: string; rootPath: string };
       handlers.onMoveDrop(from, fromRoot, path, rootPath);
@@ -227,6 +229,7 @@ const TreeNode = memo(function TreeNode({
             <Loader2 size={13} />
           </span>
         )}
+        {renderRowAccessory?.(rowCtx)}
         {deletable && (
           <button
             type="button"
@@ -267,6 +270,7 @@ const TreeNode = memo(function TreeNode({
               writable={writable}
               store={store}
               handlers={handlers}
+              renderRowAccessory={renderRowAccessory}
             />
           ))}
         </ul>
@@ -275,8 +279,7 @@ const TreeNode = memo(function TreeNode({
   );
 });
 
-/** Provider/type icon for the App-scope header (R3-94 / PRINCIPALS §9 B1): the
- *  working tree, a per-app settings store, a shared space, or a generic mount. */
+/** Provider/type icon for the App-scope header (R3-94 / PRINCIPALS §9 B1). */
 const MOUNT_ICON: Record<ReturnType<typeof mountKind>, LucideIcon> = {
   worktree: FolderGit2,
   settings: SettingsIcon,
@@ -284,42 +287,40 @@ const MOUNT_ICON: Record<ReturnType<typeof mountKind>, LucideIcon> = {
   other: Folder,
 };
 
-/** A single mounted filesystem: scope header (type icon + name + per-subtree
- *  mode chips) + its tree. */
+/** A single browsable root: scope header (type icon + name + per-subtree mode
+ *  chips + optional eject) + its tree. */
 const Scope = memo(function Scope({
-  mount,
+  root,
   store,
   handlers,
+  onEject,
+  renderRowAccessory,
 }: {
-  mount: SandboxMount;
+  root: ExplorerRoot;
   store: TreeStore;
   handlers: NodeHandlers;
+  onEject?: (root: ExplorerRoot) => Promise<void>;
+  renderRowAccessory?: (ctx: RowCtx) => ReactNode;
 }) {
-  const writable = isWritableMount(mount);
-  const mountId = mount.id ?? mount.path;
+  const writable = isWritableMount(root);
+  const mountId = root.id;
   // Eject (detach) — spaces / granted subtrees only, never the worktree or a
   // settings store (SPACES_UI_SPEC §3, R-SPACES-3). Closes the space for this
   // session; membership/grant are untouched and it re-adds via the powerbox.
-  const spaceId = mountSpaceId(mount);
-  const canEject = isEjectable(mount);
+  const canEject = isEjectable(root) && !!onEject;
   const [ejecting, setEjecting] = useState(false);
-  const onEject = useCallback(async () => {
-    if (!spaceId || ejecting) return;
+  const doEject = useCallback(async () => {
+    if (!onEject || ejecting) return;
     setEjecting(true);
     try {
-      // The mount disappears via the `useMounts()` subscription (reason
-      // `unmounted`); no manual list surgery. Typed errors degrade quietly.
-      await unmountSpace({ spaceId });
+      await onEject(root);
     } catch {
       setEjecting(false);
     }
-  }, [spaceId, ejecting]);
-  const label = mountLabel(mount);
-  // The granted subtree scopes (PRINCIPALS §9 B1 / FILE_EXPLORER §2): one chip per
-  // subtree, each with its effective (worktree-rw / else-ro) mode. A path outside
-  // every scope is simply absent — no existence oracle.
-  const scopes = mountScopes(mount);
-  const TypeIcon = MOUNT_ICON[mountKind(mount)];
+  }, [onEject, ejecting, root]);
+  const label = mountLabel(root);
+  const scopes = mountScopes(root);
+  const TypeIcon = MOUNT_ICON[mountKind(root)];
   return (
     <div className="mount">
       <div className="scope">
@@ -342,9 +343,8 @@ const Scope = memo(function Scope({
           <button
             type="button"
             className="scope__eject"
-            onClick={onEject}
+            onClick={doEject}
             disabled={ejecting}
-            // "Eject", not "remove" — detach only; access is unchanged.
             aria-label={`Eject ${label}`}
             title={`Eject ${label} (closes it here; your access is unchanged)`}
           >
@@ -356,30 +356,43 @@ const Scope = memo(function Scope({
           </button>
         )}
       </div>
-      <ul role="tree" aria-label={mountLabel(mount)} className="tree">
+      <ul role="tree" aria-label={label} className="tree">
         <TreeNode
-          key={mount.path}
-          path={mount.path}
-          name={mountLabel(mount)}
+          key={root.path}
+          path={root.path}
+          name={label}
           isDir
           depth={0}
-          rootPath={mount.path}
+          rootPath={root.path}
           mountId={mountId}
           writable={writable}
           store={store}
           handlers={handlers}
+          renderRowAccessory={renderRowAccessory}
         />
       </ul>
     </div>
   );
 });
 
-function FileExplorer() {
-  const mounts = useMounts();
-  const { activeFile } = useEditorContext();
+function FileExplorerView({
+  roots,
+  fs,
+  actions,
+  activePath = null,
+  selectionMode = "single",
+  onSelect,
+  onActivate,
+  layout: layoutProp,
+  onLayoutChange,
+  storageKey,
+  extraMenuItems,
+  renderRowAccessory,
+  header,
+  emptyState,
+}: FileExplorerViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
-  const [summary, setSummary] = useState<SummaryTarget | null>(null);
   // Inline prompt for create / rename: a single targeted input.
   const [prompt, setPrompt] = useState<
     | { mode: "create-file" | "create-folder"; baseDir: string; rootPath: string }
@@ -388,32 +401,40 @@ function FileExplorer() {
   >(null);
   const [promptValue, setPromptValue] = useState("");
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const uploadTargetRef = useRef<{ dir: string } | null>(null);
+  const uploadTargetRef = useRef<{ dir: string; rootPath: string } | null>(null);
 
-  const [store] = useState(() => new TreeStore());
+  // The store reads through the injected fs. `fs` is stable per consumer, so the
+  // store is constructed once (a changing `fs` would warrant a fresh store).
+  const [store] = useState(() => new TreeStore(fs));
 
-  // R3-84 alternative layouts. `layout` is the persisted view choice; `cwd` is the
-  // browsed directory for the flat list/icon layouts (null = the Mounts root) and
-  // `colPath` is the Miller-column focus path. Selection + active-file stay shared
-  // via the store + editor context, so switching layout keeps both.
-  const [layout, setLayout] = useLayout();
+  const [layoutState, setLayoutState] = useLayout(storageKey);
+  const layout = layoutProp ?? layoutState;
+  const setLayout = useCallback(
+    (next: Layout) => {
+      if (onLayoutChange) onLayoutChange(next);
+      if (layoutProp === undefined) setLayoutState(next);
+    },
+    [onLayoutChange, layoutProp, setLayoutState],
+  );
   const [cwd, setCwd] = useState<string | null>(null);
   const [colPath, setColPath] = useState<string[]>([]);
 
-  const ordered = useMemo(() => orderMounts(mounts), [mounts]);
+  const ordered = useMemo(() => orderMounts(roots), [roots]);
+  const rootByPath = useCallback(
+    (p: string) => ordered.find((m) => p === m.path || p.startsWith(m.path + "/")) ?? null,
+    [ordered],
+  );
   // Idempotent + emit-free: safe during render so new scopes paint open.
   store.ensureRoots(ordered.map((m) => m.path));
 
-  // Mirror the editor's active file into the store (FX-4b). Held in the store —
+  // Mirror the controlled active path into the store (FX-4b). Held in the store —
   // not threaded as a prop through the memoized tree — so a change re-renders only
   // the two rows whose active state flips, never the whole tree.
   useEffect(() => {
-    store.setActiveFile(activeFile);
-  }, [store, activeFile]);
+    store.setActiveFile(activePath);
+  }, [store, activePath]);
 
-  // Keep the flat-layout cursors valid as mounts come and go — derive, don't store:
-  // a cwd/colPath that no longer resolves to a live mount reads as the Mounts root
-  // until the user navigates again (no setState-in-effect cascade).
+  // Keep the flat-layout cursors valid as roots come and go — derive, don't store.
   const effCwd =
     cwd && ordered.some((m) => cwd === m.path || cwd.startsWith(m.path + "/")) ? cwd : null;
   const effColPath =
@@ -451,28 +472,6 @@ function FileExplorer() {
     [layout, ordered, store, setLayout],
   );
 
-  // The "file commander": every app that has per-user settings (elevated
-  // `settings:all`). Empty for a fork/preview that lacks the capability — the call
-  // rejects `forbidden` and we simply show no settings section. Each opened app's
-  // settings mount is surfaced as its own tree root below.
-  const [settingsApps, setSettingsApps] = useState<string[]>([]);
-  useEffect(() => {
-    let live = true;
-    void listSettingsApps()
-      .then((apps) => live && setSettingsApps(apps))
-      .catch(() => undefined);
-    return () => {
-      live = false;
-    };
-  }, []);
-  // Opened settings mounts flow through `ordered` (and `ensureRoots` above), so
-  // they render as their own Scope; this slice is only used to hide a "click to
-  // open" row for an app whose settings are already mounted.
-  const settingsMounts = mounts.filter((m) => m.id?.startsWith("settings:"));
-  const openAppSettings = useCallback((appKey: string) => {
-    void openSettingsOf(appKey).catch(() => undefined);
-  }, []);
-
   const runWrite = useCallback(
     async (op: () => Promise<void>) => {
       setError(null);
@@ -488,182 +487,178 @@ function FileExplorer() {
   );
 
   // --- stable node handlers (so the memoized tree doesn't re-render) ---
-  const onOpenFile = useCallback((mountRel: string) => {
-    setError(null);
-    void openInEditor(mountRel).catch((e) => {
-      if ((e as { code?: string })?.code !== "not-found") setError("Couldn’t open that file.");
-    });
-  }, []);
-
-  const onActivate = useCallback(
-    (absPath: string, isDir: boolean) => {
-      if (isDir) {
-        store.toggle(absPath);
-      } else {
-        store.select(absPath);
-        // mount-rel path is computed against the owning root; recover it by trimming
-        // the longest root prefix among the mounted roots.
-        const root = ordered.find((m) => absPath === m.path || absPath.startsWith(m.path + "/"));
-        onOpenFile(root ? toMountRel(root.path, absPath) : absPath);
+  // Open is dispatched where the owning root is known (onActivate / the menu); it
+  // calls onActivate then actions.open with the mount-relative path.
+  const dispatchOpen = useCallback(
+    (root: ExplorerRoot, mountRel: string) => {
+      setError(null);
+      onActivate?.(root, mountRel, false);
+      if (!actions?.open) return;
+      try {
+        actions.open(root, mountRel);
+      } catch {
+        setError("Couldn’t open that file.");
       }
     },
-    [store, ordered, onOpenFile],
+    [actions, onActivate],
+  );
+
+  const handleActivate = useCallback(
+    (absPath: string, isDir: boolean) => {
+      const root = rootByPath(absPath);
+      if (isDir) {
+        store.toggle(absPath);
+        if (root) onActivate?.(root, toMountRel(root.path, absPath), true);
+      } else {
+        if (selectionMode !== "none") store.select(absPath);
+        if (!root) return; // a row always belongs to a rendered root
+        const rel = toMountRel(root.path, absPath);
+        onSelect?.(root, rel);
+        dispatchOpen(root, rel);
+      }
+    },
+    [store, rootByPath, onActivate, onSelect, dispatchOpen, selectionMode],
   );
 
   const onMoveDrop = useCallback(
     (fromAbs: string, fromRoot: string, targetDir: string, targetRoot: string) => {
+      if (!actions?.rename) return;
       const reason = moveRejection(fromAbs, targetDir, fromRoot, targetRoot);
       if (reason) {
         if (reason === "cross-mount") setError(WRITE_ERR["cross-mount"]);
         return; // same-dir / into-self: silent no-op
       }
+      const root = rootByPath(targetDir);
+      if (!root) return;
       const from = toMountRel(fromRoot, fromAbs);
       const to = toMountRel(targetRoot, joinPath(targetDir, basename(fromAbs)));
-      void runWrite(() => renameEntry(from, to));
+      void runWrite(() => actions.rename!(root, from, to));
     },
-    [runWrite],
-  );
-
-  const doUpload = useCallback(
-    (files: File[], targetDirRel: string) => {
-      void runWrite(async () => {
-        for (const f of files) {
-          if (f.size > MAX_UPLOAD_BYTES) throw Object.assign(new Error("too large"), { code: "too-large" });
-          const bytes = new Uint8Array(await f.arrayBuffer());
-          await uploadFile(joinPath(targetDirRel, basename(f.name)), bytes);
-        }
-      });
-    },
-    [runWrite],
+    [actions, runWrite, rootByPath],
   );
 
   const onUploadDrop = useCallback(
     (files: File[], targetDirAbs: string, writable: boolean) => {
-      if (!writable || !files.length) return;
-      const root = ordered.find((m) => targetDirAbs === m.path || targetDirAbs.startsWith(m.path + "/"));
+      if (!actions?.upload || !writable || !files.length) return;
+      const root = rootByPath(targetDirAbs);
       if (!root) return;
-      doUpload(files, toMountRel(root.path, targetDirAbs));
+      void runWrite(() => actions.upload!(root, toMountRel(root.path, targetDirAbs), files));
     },
-    [ordered, doUpload],
+    [actions, runWrite, rootByPath],
   );
 
   const beginDragOut = useCallback(
-    (absPath: string, isDir: boolean, mountId: string, rootPath: string) => {
-      // Inform the host a cross-app drag started (R3-83). Reference-only for dirs/
-      // large files; inline bytes for a small file (best-effort — the source can
-      // only ever relay bytes it can already read). `forbidden` (non-first-party) is
-      // swallowed: internal move still works.
-      void (async () => {
-        const item = {
-          kind: (isDir ? "dir" : "file") as "dir" | "file",
-          name: basename(absPath),
-          mountId,
-          relPath: toMountRel(rootPath, absPath),
-        } as Parameters<typeof startItemDrag>[0];
-        if (!isDir) {
-          try {
-            const bytes = await readFile(absPath);
-            if (bytes.byteLength <= MAX_UPLOAD_BYTES) item.bytes = bytes;
-          } catch {
-            /* unreadable → reference-only */
-          }
-        }
-        try {
-          await startItemDrag(item);
-        } catch {
-          /* no dnd:source / no host → drag-out unavailable, internal move unaffected */
-        }
-      })();
+    (absPath: string, isDir: boolean) => {
+      if (!actions?.beginDragOut) return;
+      const root = rootByPath(absPath);
+      if (!root) return;
+      actions.beginDragOut(root, toMountRel(root.path, absPath), isDir);
     },
-    [],
+    [actions, rootByPath],
   );
+
+  const cancelDragOut = useCallback(() => {
+    actions?.cancelDragOut?.();
+  }, [actions]);
 
   const onDelete = useCallback(
     (absPath: string, isDir: boolean, rootPath: string) => {
+      if (!actions?.delete) return;
+      const root = rootByPath(absPath);
+      if (!root) return;
       const mountRel = toMountRel(rootPath, absPath);
       if (!window.confirm(`Delete ${isDir ? "folder" : "file"} ${mountRel}?`)) return;
-      void runWrite(() => deleteEntry(mountRel));
+      void runWrite(() => actions.delete!(root, mountRel));
     },
-    [runWrite],
+    [actions, runWrite, rootByPath],
   );
 
   // --- context menu construction (gated items only) ---
   const openMenu = useCallback(
     (e: { clientX: number; clientY: number }, ctx: RowCtx) => {
       const items: MenuItem[] = [];
+      const root = rootByPath(ctx.absPath);
       const mountRel = toMountRel(ctx.rootPath, ctx.absPath);
-      if (!ctx.isDir) {
-        items.push({ key: "open", label: "Open", icon: <ExternalLink size={14} />, onSelect: () => onOpenFile(mountRel) });
-        items.push({
-          key: "summarize",
-          label: "Summarize…",
-          icon: <Sparkles size={14} />,
-          onSelect: () =>
-            setSummary({
-              absPath: ctx.absPath,
-              rootPath: ctx.rootPath,
-              name: basename(ctx.absPath),
-              writable: ctx.writable,
-            }),
-        });
+      if (!ctx.isDir && actions?.open && root) {
+        items.push({ key: "open", label: "Open", icon: <ExternalLink size={14} />, onSelect: () => dispatchOpen(root, mountRel) });
       }
       if (ctx.writable) {
         const baseDir = ctx.isDir ? ctx.absPath : dirOf(ctx.absPath);
-        items.push({
-          key: "new-file",
-          label: "New file here",
-          icon: <FilePlus size={14} />,
-          onSelect: () => {
-            setPrompt({ mode: "create-file", baseDir, rootPath: ctx.rootPath });
-            setPromptValue("");
-          },
-        });
-        items.push({
-          key: "new-folder",
-          label: "New folder here",
-          icon: <FolderPlus size={14} />,
-          onSelect: () => {
-            setPrompt({ mode: "create-folder", baseDir, rootPath: ctx.rootPath });
-            setPromptValue("");
-          },
-        });
-        items.push({
-          key: "upload",
-          label: "Upload here…",
-          icon: <Upload size={14} />,
-          onSelect: () => {
-            uploadTargetRef.current = { dir: toMountRel(ctx.rootPath, baseDir) };
-            uploadInputRef.current?.click();
-          },
-        });
-        if (!isProtected(mountRel) && ctx.absPath !== ctx.rootPath) {
+        if (actions?.createFile) {
           items.push({
-            key: "rename",
-            label: "Rename…",
-            icon: <Pencil size={14} />,
+            key: "new-file",
+            label: "New file here",
+            icon: <FilePlus size={14} />,
             onSelect: () => {
-              setPrompt({ mode: "rename", targetAbs: ctx.absPath, rootPath: ctx.rootPath, initial: basename(ctx.absPath) });
-              setPromptValue(basename(ctx.absPath));
+              setPrompt({ mode: "create-file", baseDir, rootPath: ctx.rootPath });
+              setPromptValue("");
             },
           });
+        }
+        if (actions?.createFolder) {
           items.push({
-            key: "delete",
-            label: "Delete",
-            icon: <Trash2 size={14} />,
-            danger: true,
-            onSelect: () => onDelete(ctx.absPath, ctx.isDir, ctx.rootPath),
+            key: "new-folder",
+            label: "New folder here",
+            icon: <FolderPlus size={14} />,
+            onSelect: () => {
+              setPrompt({ mode: "create-folder", baseDir, rootPath: ctx.rootPath });
+              setPromptValue("");
+            },
           });
         }
+        if (actions?.upload) {
+          items.push({
+            key: "upload",
+            label: "Upload here…",
+            icon: <Upload size={14} />,
+            onSelect: () => {
+              uploadTargetRef.current = { dir: toMountRel(ctx.rootPath, baseDir), rootPath: ctx.rootPath };
+              uploadInputRef.current?.click();
+            },
+          });
+        }
+        if (!isProtected(mountRel) && ctx.absPath !== ctx.rootPath) {
+          if (actions?.rename) {
+            items.push({
+              key: "rename",
+              label: "Rename…",
+              icon: <Pencil size={14} />,
+              onSelect: () => {
+                setPrompt({ mode: "rename", targetAbs: ctx.absPath, rootPath: ctx.rootPath, initial: basename(ctx.absPath) });
+                setPromptValue(basename(ctx.absPath));
+              },
+            });
+          }
+          if (actions?.delete) {
+            items.push({
+              key: "delete",
+              label: "Delete",
+              icon: <Trash2 size={14} />,
+              danger: true,
+              onSelect: () => onDelete(ctx.absPath, ctx.isDir, ctx.rootPath),
+            });
+          }
+        }
       }
+      // Consumer extension slot (e.g. the SDK adapter's "Summarize…").
+      if (extraMenuItems) items.push(...extraMenuItems(ctx));
       if (!items.length) return;
       setMenu({ x: e.clientX, y: e.clientY, items });
     },
-    [onOpenFile, onDelete],
+    [actions, rootByPath, dispatchOpen, onDelete, extraMenuItems],
   );
 
   const handlers: NodeHandlers = useMemo(
-    () => ({ onOpenFile, onActivate, onMenu: openMenu, onMoveDrop, onUploadDrop, beginDragOut, onDelete }),
-    [onOpenFile, onActivate, openMenu, onMoveDrop, onUploadDrop, beginDragOut, onDelete],
+    () => ({
+      onActivate: handleActivate,
+      onMenu: openMenu,
+      onMoveDrop,
+      onUploadDrop,
+      beginDragOut: (absPath, isDir) => beginDragOut(absPath, isDir),
+      cancelDragOut,
+      onDelete: actions?.delete ? onDelete : (undefined as unknown as NodeHandlers["onDelete"]),
+    }),
+    [handleActivate, openMenu, onMoveDrop, onUploadDrop, beginDragOut, cancelDragOut, onDelete, actions],
   );
 
   const submitPrompt = () => {
@@ -673,12 +668,22 @@ function FileExplorer() {
     const value = promptValue.trim().replace(/^\/+/, "");
     setPromptValue("");
     if (!value) return;
+    const root = rootByPath(p.rootPath === "" ? "" : p.rootPath) ?? ordered.find((m) => m.path === p.rootPath) ?? null;
+    if (!root) return;
     if (p.mode === "rename") {
-      const to = joinPath(dirOf(toMountRel(p.rootPath, p.targetAbs)), basename(value));
-      void runWrite(() => renameEntry(toMountRel(p.rootPath, p.targetAbs), to));
+      if (!actions?.rename) return;
+      const from = toMountRel(p.rootPath, p.targetAbs);
+      const to = joinPath(dirOf(from), basename(value));
+      void runWrite(() => actions.rename!(root, from, to));
     } else {
       const rel = joinPath(toMountRel(p.rootPath, p.baseDir), value);
-      void runWrite(() => (p.mode === "create-file" ? createFile(rel) : createFolder(rel)));
+      if (p.mode === "create-file") {
+        if (!actions?.createFile) return;
+        void runWrite(() => actions.createFile!(root, rel));
+      } else {
+        if (!actions?.createFolder) return;
+        void runWrite(() => actions.createFolder!(root, rel));
+      }
     }
   };
 
@@ -686,27 +691,23 @@ function FileExplorer() {
     const files = Array.from(e.target.files ?? []);
     const target = uploadTargetRef.current;
     e.target.value = "";
-    if (!files.length || !target) return;
-    // dir here is mount-relative already (set at menu time).
-    void runWrite(async () => {
-      for (const f of files) {
-        if (f.size > MAX_UPLOAD_BYTES) throw Object.assign(new Error("too large"), { code: "too-large" });
-        const bytes = new Uint8Array(await f.arrayBuffer());
-        await uploadFile(joinPath(target.dir, basename(f.name)), bytes);
-      }
-    });
+    if (!files.length || !target || !actions?.upload) return;
+    // The owning root was captured at menu time (target.rootPath).
+    const root = rootByPath(target.rootPath);
+    if (!root) return;
+    void runWrite(() => actions.upload!(root, target.dir, files));
   };
 
-  const hasMounts = ordered.length > 0;
+  const hasRoots = ordered.length > 0;
+  const title = header?.title ?? "Files";
+  const glyph = header?.glyph ?? <FolderTree size={15} aria-hidden="true" />;
 
   return (
-    <section className="panel" aria-label="Files">
+    <section className="panel fx-root" aria-label={title}>
       <header className="panel__head">
-        <span className="panel__glyph">
-          <FolderTree size={15} aria-hidden="true" />
-        </span>
-        <span className="panel__title">Files</span>
-        {hasMounts && (
+        <span className="panel__glyph">{glyph}</span>
+        <span className="panel__title">{title}</span>
+        {hasRoots && (
           <div className="panel__actions">
             <LayoutSwitcher value={layout} onChange={chooseLayout} />
             {layout === "tree" && (
@@ -720,6 +721,7 @@ function FileExplorer() {
                 <ChevronsDownUp size={15} aria-hidden="true" />
               </button>
             )}
+            {header?.actions}
           </div>
         )}
       </header>
@@ -754,47 +756,39 @@ function FileExplorer() {
       <input ref={uploadInputRef} type="file" multiple hidden onChange={onUploadInput} aria-hidden="true" tabIndex={-1} />
 
       <div className="panel__body">
-        {!hasMounts && settingsApps.length === 0 ? (
-          <div className="state">
-            <span className="state__icon">
-              <FolderTree size={20} aria-hidden="true" />
-            </span>
-            <h4>No files to show yet.</h4>
-            <p>Open a project or add a space and its files appear here.</p>
-          </div>
+        {!hasRoots ? (
+          emptyState ?? (
+            <div className="state">
+              <span className="state__icon">
+                <FolderTree size={20} aria-hidden="true" />
+              </span>
+              <h4>No files to show yet.</h4>
+              <p>Open a project or add a space and its files appear here.</p>
+            </div>
+          )
         ) : layout === "list" ? (
-          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activeFile} handlers={handlers} />
+          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activePath} handlers={handlers} />
         ) : layout === "icons" ? (
-          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activeFile} handlers={handlers} />
+          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activePath} handlers={handlers} />
         ) : layout === "columns" ? (
-          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={setColPath} activeFile={activeFile} handlers={handlers} />
+          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={setColPath} activeFile={activePath} handlers={handlers} />
         ) : (
           ordered.map((m) => (
-            <Scope key={m.path} mount={m} store={store} handlers={handlers} />
+            <Scope
+              key={m.path}
+              root={m}
+              store={store}
+              handlers={handlers}
+              onEject={actions?.eject}
+              renderRowAccessory={renderRowAccessory}
+            />
           ))
         )}
-        {/* Apps that have per-user settings but aren't mounted yet — click to open
-            (`settings:all`). An already-opened settings mount renders above as its
-            own Scope via `ordered`, so filter those out. Shown in every layout. */}
-        {settingsApps
-          .filter((ak) => !settingsMounts.some((m) => m.id === `settings:${ak}`))
-          .map((ak) => (
-            <button
-              key={ak}
-              type="button"
-              className="settings-app"
-              onClick={() => openAppSettings(ak)}
-              title={`Open ${ak} settings`}
-            >
-              <FolderTree size={14} aria-hidden="true" /> settings · {ak}
-            </button>
-          ))}
       </div>
 
       {menu && <ContextMenu anchor={menu} onClose={() => setMenu(null)} />}
-      {summary && <SummaryModal target={summary} onClose={() => setSummary(null)} />}
     </section>
   );
 }
 
-export default FileExplorer;
+export default FileExplorerView;

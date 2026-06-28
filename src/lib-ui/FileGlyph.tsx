@@ -14,7 +14,7 @@ import {
   FileType,
   type LucideIcon,
 } from "lucide-react";
-import { extOf } from "../lib/entryMeta";
+import { extOf } from "./entryMeta";
 
 const BY_EXT: Record<string, LucideIcon> = {
   ts: FileCode,

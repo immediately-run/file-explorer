@@ -17,11 +17,7 @@
 //
 // This helper only works inside the sandbox (where these globals exist); it is
 // not exercised in local `vite` dev, so every access is guarded.
-
-export interface DirEntry {
-  name: string;
-  isDir: boolean;
-}
+import type { DirEntry, FsSource } from "../types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const hasReaddir = (fs: any): boolean =>
@@ -112,3 +108,8 @@ export async function readFile(path: string): Promise<Uint8Array> {
   const data = await p.readFile(path);
   return data instanceof Uint8Array ? data : new Uint8Array(data);
 }
+
+/** The default {@link FsSource}: the ZenFS sandbox accessor. The headless view
+ *  reads bytes/entries through this in the shipped app (a consumer with a
+ *  different filesystem supplies its own `FsSource`). */
+export const sdkFsSource: FsSource = { readdir, readFile };
