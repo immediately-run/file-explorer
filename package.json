@@ -1,13 +1,25 @@
 {
-  "name": "immediately-run-file-explorer",
+  "name": "@immediately-run/file-explorer-ui",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "immediately.run": {
     "requireLatest": "stale_ok",
     "requests": {
       "llm:chat": {}
     }
+  },
+  "//exports": "file-explorer-library Phase 03 / LIBRARY_MOUNTS_SPEC — this repo is ALSO a consumable library. SOURCE entries (no dist build): the immediately.run bundler transpiles the source at runtime via the git-mount, and a local consumer's bundler transpiles it too. '.' = the headless view + helpers (no SDK); './sdk' = the SDK adapter; './styles.css' = the stylesheet. The app entry (App.tsx) is unaffected.",
+  "exports": {
+    ".": "./src/lib-ui/index.ts",
+    "./sdk": "./src/lib-ui/sdk/index.ts",
+    "./styles.css": "./src/lib-ui/styles.css"
+  },
+  "peerDependencies": {
+    "@immediately-run/sdk": "^0.13.0",
+    "lucide-react": "^0.469.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "scripts": {
     "dev": "vite",
