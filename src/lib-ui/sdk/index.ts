@@ -1,0 +1,9 @@
+// Public surface of the SDK adapter (`@immediately-run/file-explorer-ui/sdk`).
+// Wires the headless view to `@immediately-run/sdk`: roots from `useMounts`, the
+// ZenFS `FsSource`, the action bundle, and the fully-assembled app.
+export { default } from "./SdkFileExplorer"; // SdkFileExplorer — the whole app
+export { default as SdkFileExplorer } from "./SdkFileExplorer";
+export { useSdkRoots } from "./useSdkRoots";
+export { sdkFsSource, readdir, readFile, fsAvailable } from "./mountFs";
+export { makeSdkActions } from "./actions";
+export { toExplorerRoot } from "./mounts";

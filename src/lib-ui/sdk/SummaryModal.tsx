@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { chat, uploadFile } from "@immediately-run/sdk";
-import { readFile } from "../fs/mountFs";
-import { dirOf, joinPath, toMountRel } from "../lib/explorer";
+import { readFile } from "./mountFs";
+import { dirOf, joinPath, toMountRel } from "../explorer";
 import "./SummaryModal.css";
 
 /** The file to summarize, in the explorer's absolute-path space. */

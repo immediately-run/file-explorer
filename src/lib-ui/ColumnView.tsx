@@ -8,13 +8,13 @@
 // CSS scroll-snap one-column-at-a-time (brief 13 §"Narrow-panel + mobile").
 import { memo, useEffect, useMemo, useRef } from "react";
 import { Trash2, Lock } from "lucide-react";
-import type { SandboxMount } from "@immediately-run/sdk";
 import { TreeStore, useSelected } from "./treeStore";
 import FileGlyph from "./FileGlyph";
-import { useBrowse, type BrowseRow } from "../hooks/useBrowse";
-import { useLongPress } from "../hooks/useLongPress";
-import { useRowInteractions, type NodeHandlers } from "../hooks/useRowInteractions";
-import { mountLabel, subtreeLabel, isWritableMount, toMountRel, isProtected } from "../lib/explorer";
+import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
+import { useLongPress } from "./hooks/useLongPress";
+import { useRowInteractions, type NodeHandlers } from "./hooks/useRowInteractions";
+import { mountLabel, subtreeLabel, isWritableMount, toMountRel, isProtected } from "./explorer";
+import type { ExplorerRoot } from "./types";
 
 const ColRow = memo(function ColRow({
   row,
@@ -95,7 +95,7 @@ const Column = memo(function Column({
   handlers,
 }: {
   store: TreeStore;
-  ordered: SandboxMount[];
+  ordered: ExplorerRoot[];
   dir: string | null;
   level: number;
   pathAtLevel: string | null;
@@ -154,7 +154,7 @@ function ColumnView({
   handlers,
 }: {
   store: TreeStore;
-  ordered: SandboxMount[];
+  ordered: ExplorerRoot[];
   colPath: string[];
   setColPath: (next: string[]) => void;
   activeFile: string | null;

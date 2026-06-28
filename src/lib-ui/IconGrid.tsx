@@ -5,15 +5,15 @@
 // two dimensions, Enter/Space opens.
 import { memo, useMemo, useRef } from "react";
 import { Trash2 } from "lucide-react";
-import type { SandboxMount } from "@immediately-run/sdk";
 import { TreeStore, useSelected } from "./treeStore";
 import FileGlyph from "./FileGlyph";
 import Breadcrumb from "./Breadcrumb";
-import { useBrowse, type BrowseRow } from "../hooks/useBrowse";
-import { useLongPress } from "../hooks/useLongPress";
-import { useRowInteractions, type NodeHandlers } from "../hooks/useRowInteractions";
-import { breadcrumbFor, toMountRel, isProtected } from "../lib/explorer";
-import { fileTypeLabel } from "../lib/entryMeta";
+import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
+import { useLongPress } from "./hooks/useLongPress";
+import { useRowInteractions, type NodeHandlers } from "./hooks/useRowInteractions";
+import { breadcrumbFor, toMountRel, isProtected } from "./explorer";
+import { fileTypeLabel } from "./entryMeta";
+import type { ExplorerRoot } from "./types";
 
 const IconTile = memo(function IconTile({
   row,
@@ -87,7 +87,7 @@ function IconGrid({
   handlers,
 }: {
   store: TreeStore;
-  ordered: SandboxMount[];
+  ordered: ExplorerRoot[];
   cwd: string | null;
   setCwd: (path: string | null) => void;
   activeFile: string | null;

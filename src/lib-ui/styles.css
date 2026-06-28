@@ -1,6 +1,42 @@
-/* Read-only file explorer. Adapts design surface 10. Tokens from index.css (the
-   immediately.run design system) — no hard-coded brand values. Lives in a narrow
-   chrome panel column. */
+/* file-explorer view styles (the library's component classes). Tokens come from
+   the host theme (the immediately.run design system in `index.css`) — no
+   hard-coded brand values in the rules below.
+
+   Token fallback (00-overview §5): a consumer that does NOT ship the design
+   tokens still gets unstyled-but-functional output. The `:where(.fx-root)` block
+   below seeds the tokens the view reads at ZERO specificity, so a real host theme
+   on `:root`/`html` always overrides it. The `FileExplorerView` root element
+   carries the `fx-root` class so these apply. */
+:where(.fx-root) {
+  --bg: #0a0b11;
+  --panel: #13141d;
+  --panel-2: #191b26;
+  --line: rgba(180, 170, 225, 0.14);
+  --line-2: rgba(180, 170, 225, 0.22);
+  --ink: #ecebf4;
+  --ink-2: #9b97b3;
+  --ink-3: #6a677f;
+  --accent: oklch(0.74 0.17 350);
+  --accent-2: oklch(0.66 0.18 295);
+  --accent-3: oklch(0.82 0.12 340);
+  --grad: linear-gradient(96deg, #f6f1fb 0%, #f49ad4 46%, #b285f2 100%);
+  --glow: 0 0 0 1px rgba(150, 110, 240, 0.5), 0 0 34px rgba(150, 110, 240, 0.32);
+  --accent-pink: #f49ad4;
+  --accent-violet: #b285f2;
+  --accent-hot: #c43d96;
+  --disp: "Gabarito", system-ui, sans-serif;
+  --sans: "Public Sans", system-ui, sans-serif;
+  --mono: "Space Mono", ui-monospace, monospace;
+  --r-xs: 5px;
+  --r-sm: 6px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 18px;
+  --r-pill: 30px;
+  --shadow-card: 6px 6px 0 var(--accent-2);
+  --shadow-modal: 0 24px 70px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 12px 34px rgba(0, 0, 0, 0.45);
+}
 
 .panel {
   display: flex;

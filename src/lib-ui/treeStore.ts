@@ -19,7 +19,7 @@
 // Each node subscribes to ONLY its own slice via `useSyncExternalStore`, so a
 // toggle or a selection re-renders just the affected rows, never the tree.
 import { useEffect, useSyncExternalStore } from "react";
-import { readdir, type DirEntry } from "../fs/mountFs";
+import type { DirEntry, FsSource } from "./types";
 
 export class TreeStore {
   private expanded = new Set<string>();
@@ -34,6 +34,16 @@ export class TreeStore {
   private activeFile: string | null = null;
   private roots = new Set<string>();
   private listeners = new Set<() => void>();
+
+  // The injected filesystem source the store reads directory entries through. The
+  // view constructs the store with a concrete `FsSource` (the SDK adapter's ZenFS
+  // `sdkFsSource`, file-commander's in-memory fs, or a test fake), so the store
+  // never imports a concrete fs (Phase 02 §A.2). An explicit field assignment
+  // (not a parameter property) keeps `erasableSyntaxOnly` happy.
+  private fs: FsSource;
+  constructor(fs: FsSource) {
+    this.fs = fs;
+  }
 
   /** Stable subscribe fn for `useSyncExternalStore` (identity must not change). */
   subscribe = (listener: () => void): (() => void) => {
@@ -131,7 +141,7 @@ export class TreeStore {
   ensureLoaded = (p: string): void => {
     if (this.entries.has(p) || this.errored.has(p) || this.inflight.has(p)) return;
     this.inflight.add(p);
-    void readdir(p).then(
+    void this.fs.readdir(p).then(
       (list) => {
         this.inflight.delete(p);
         this.entries.set(p, list);
@@ -153,7 +163,7 @@ export class TreeStore {
    */
   refresh = (): void => {
     for (const p of [...this.expanded]) {
-      void readdir(p).then(
+      void this.fs.readdir(p).then(
         (list) => {
           this.entries.set(p, list);
           this.errored.delete(p);

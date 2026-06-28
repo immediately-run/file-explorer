@@ -9,20 +9,7 @@
 // ARIA `menu`/`menuitem` with roving focus + arrow keys; dismiss on outside-click,
 // Escape, or scroll. Positioned at the pointer (clamped to the viewport).
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-
-export interface MenuItem {
-  key: string;
-  label: string;
-  icon?: React.ReactNode;
-  danger?: boolean;
-  onSelect: () => void;
-}
-
-export interface MenuAnchor {
-  x: number;
-  y: number;
-  items: MenuItem[];
-}
+import type { MenuAnchor } from "./types";
 
 function ContextMenu({ anchor, onClose }: { anchor: MenuAnchor; onClose: () => void }) {
   const ref = useRef<HTMLUListElement>(null);

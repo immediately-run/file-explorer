@@ -15,7 +15,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:core": "node scripts/check-core-pure.mjs"
   },
   "dependencies": {
     "@immediately-run/sdk": "^0.13.0",

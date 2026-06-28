@@ -1,13 +1,12 @@
 // Resolve a current directory (`cwd`) into the rows the flat layouts (list, icons)
-// render, plus the owning mount (R3-84). `cwd === null` is the "Mounts" root: the
-// rows are the mounts themselves (each a folder you open into), so a deep grant is
-// always reachable and the mount list is never lost. Inside a mount, the rows are
+// render, plus the owning root (R3-84). `cwd === null` is the "Spaces" root: the
+// rows are the roots themselves (each a folder you open into), so a deep grant is
+// always reachable and the root list is never lost. Inside a root, the rows are
 // that directory's entries, read through the SAME shared, lazily-loaded store
 // cache the tree uses (`useDir`), so switching layout re-reads nothing.
-import type { SandboxMount } from "@immediately-run/sdk";
-import { TreeStore, useDir } from "../components/treeStore";
-import { joinPath, mountLabel, isWritableMount } from "../lib/explorer";
-import type { RowCtx } from "./useRowInteractions";
+import { TreeStore, useDir } from "../treeStore";
+import { joinPath, mountLabel, isWritableMount } from "../explorer";
+import type { ExplorerRoot, RowCtx } from "../types";
 
 export interface BrowseRow {
   name: string;
@@ -15,7 +14,7 @@ export interface BrowseRow {
 }
 
 export interface Browse {
-  mount: SandboxMount | null;
+  mount: ExplorerRoot | null;
   rows: BrowseRow[];
   loading: boolean;
   errored: boolean;
@@ -23,13 +22,13 @@ export interface Browse {
   atRoot: boolean;
 }
 
-const rowForMount = (m: SandboxMount): BrowseRow => ({
+const rowForMount = (m: ExplorerRoot): BrowseRow => ({
   name: mountLabel(m),
   ctx: {
     absPath: m.path,
     isDir: true,
     rootPath: m.path,
-    mountId: m.id ?? m.path,
+    mountId: m.id,
     writable: isWritableMount(m),
   },
 });
@@ -37,7 +36,7 @@ const rowForMount = (m: SandboxMount): BrowseRow => ({
 export function useBrowse(
   store: TreeStore,
   cwd: string | null,
-  ordered: SandboxMount[],
+  ordered: ExplorerRoot[],
 ): Browse {
   const atRoot = cwd === null;
   const mount = atRoot
@@ -66,7 +65,7 @@ export function useBrowse(
             absPath: joinPath(cwd as string, e.name),
             isDir: e.isDir,
             rootPath: mount.path,
-            mountId: mount.id ?? mount.path,
+            mountId: mount.id,
             writable: isWritableMount(mount),
           },
         }))
