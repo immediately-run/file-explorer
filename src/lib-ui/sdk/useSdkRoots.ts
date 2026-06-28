@@ -3,12 +3,27 @@
 // library's generalized `ExplorerRoot` (via `toExplorerRoot`), so the headless
 // view never sees a host mount shape.
 import { useMemo } from "react";
-import { useMounts } from "@immediately-run/sdk";
+import { useMounts, type SandboxMount } from "@immediately-run/sdk";
 import type { ExplorerRoot } from "../types";
 import { toExplorerRoot } from "./mounts";
 
-/** The active mounts, mapped to `ExplorerRoot[]` for `<FileExplorerView roots=…>`. */
+// A git-dependency LIBRARY mount carries a `moduleName` (the host tags it so the
+// bundler registers it under `/node_modules/<name>/` — LIBRARY_MOUNTS_SPEC L3/§8.3).
+// It is plumbing, not a user document, so it is EXCLUDED from the file view (§8.3).
+// `moduleName` isn't in the SDK's `SandboxMount` type yet, so read it via a local
+// widening (the field is present on the descriptor at runtime). A user's *own*
+// explicitly-mounted repo (runtime `mount('github:…')`) has NO `moduleName`, so it
+// still shows — the flag, not the `github` type, is the discriminator.
+const isLibraryMount = (m: SandboxMount): boolean =>
+  typeof (m as { moduleName?: unknown }).moduleName === "string" &&
+  (m as { moduleName?: string }).moduleName !== "";
+
+/** The active mounts (excluding library/module mounts), mapped to `ExplorerRoot[]`
+ *  for `<FileExplorerView roots=…>`. */
 export function useSdkRoots(): ExplorerRoot[] {
   const mounts = useMounts();
-  return useMemo(() => mounts.map(toExplorerRoot), [mounts]);
+  return useMemo(
+    () => mounts.filter((m) => !isLibraryMount(m)).map(toExplorerRoot),
+    [mounts],
+  );
 }
