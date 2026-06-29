@@ -77,6 +77,14 @@ export interface FileExplorerViewProps {
   selectionMode?: "single" | "multi" | "none";
   onSelect?: (root: ExplorerRoot, relPath: string) => void;
   onActivate?: (root: ExplorerRoot, relPath: string, isDir: boolean) => void;
+  /**
+   * Fired when the browsed directory changes in a flat layout (list / icons /
+   * columns) — a consumer (e.g. file-commander) observes each panel's current
+   * directory, the destination for a cross-panel copy/move. `relPath` is the
+   * mount-relative directory within `root`. Not fired for the tree layout (no
+   * single "current directory") nor for the synthetic roots-root view.
+   */
+  onNavigate?: (root: ExplorerRoot, relPath: string) => void;
   /** Controlled layout, or omit and pass `storageKey` for the persisted default. */
   layout?: Layout;
   onLayoutChange?: (next: Layout) => void;
@@ -383,6 +391,7 @@ function FileExplorerView({
   selectionMode = "single",
   onSelect,
   onActivate,
+  onNavigate,
   layout: layoutProp,
   onLayoutChange,
   storageKey,
@@ -439,6 +448,33 @@ function FileExplorerView({
     cwd && ordered.some((m) => cwd === m.path || cwd.startsWith(m.path + "/")) ? cwd : null;
   const effColPath =
     colPath.length && ordered.some((m) => m.path === colPath[0]) ? colPath : [];
+
+  // Navigate the flat (list/icons) layout's browsed directory, and report it to a
+  // consumer via `onNavigate` (the extension point file-commander uses to track a
+  // panel's current directory — the copy/move destination). A `null` cwd is the
+  // synthetic roots-root (no single directory) and is not reported.
+  const navigateCwd = useCallback(
+    (path: string | null) => {
+      setCwd(path);
+      if (path) {
+        const root = rootByPath(path);
+        if (root) onNavigate?.(root, toMountRel(root.path, path));
+      }
+    },
+    [rootByPath, onNavigate],
+  );
+  // The Miller-columns analog: the focused column is the deepest path segment.
+  const navigateCols = useCallback(
+    (path: string[]) => {
+      setColPath(path);
+      const last = path[path.length - 1];
+      if (last) {
+        const root = rootByPath(last);
+        if (root) onNavigate?.(root, toMountRel(root.path, last));
+      }
+    },
+    [rootByPath, onNavigate],
+  );
 
   // Switching layout seeds the new view from the current selection so the selected
   // file stays in view (acceptance: selection survives a switch).
@@ -767,11 +803,11 @@ function FileExplorerView({
             </div>
           )
         ) : layout === "list" ? (
-          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activePath} handlers={handlers} />
+          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} handlers={handlers} />
         ) : layout === "icons" ? (
-          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={setCwd} activeFile={activePath} handlers={handlers} />
+          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} handlers={handlers} />
         ) : layout === "columns" ? (
-          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={setColPath} activeFile={activePath} handlers={handlers} />
+          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={navigateCols} activeFile={activePath} handlers={handlers} />
         ) : (
           ordered.map((m) => (
             <Scope
