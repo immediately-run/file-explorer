@@ -134,4 +134,20 @@ describe("FileExplorerView (headless, no SDK)", () => {
     render(<FileExplorerView roots={[]} fs={fakeFs} />);
     expect(screen.getByRole("heading", { name: /No files to show yet/i })).toBeInTheDocument();
   });
+
+  it("fires onNavigate with (root, relPath) when the list layout browses into a directory", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    render(
+      <FileExplorerView roots={[worktree]} fs={fakeFs} layout="list" onNavigate={onNavigate} />,
+    );
+    // The list starts at the roots-root (the single root shown as a row). Enter it…
+    await user.click(await screen.findByText("repo"));
+    // …then into `src`. onNavigate reports the destination directory per navigation.
+    await user.click(await screen.findByText("src"));
+
+    expect(onNavigate).toHaveBeenCalledWith(worktree, expect.stringMatching(/(^|\/)src$/));
+    // Always the owning root, never a foreign one.
+    for (const call of onNavigate.mock.calls) expect(call[0]).toBe(worktree);
+  });
 });
