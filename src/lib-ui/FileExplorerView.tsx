@@ -10,7 +10,7 @@
 // Behavior is byte-for-byte the same as the pre-extraction app: the same four
 // layouts, the same `TreeStore` + `useLayout`, the same context menu, breadcrumb,
 // scope headers, gestures, and the FX-1/FX-2/FX-4a/FX-4b invariants.
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   FolderTree,
   Folder,
@@ -76,6 +76,27 @@ export interface FileExplorerViewProps {
   activePath?: string | null;
   selectionMode?: "single" | "multi" | "none";
   onSelect?: (root: ExplorerRoot, relPath: string) => void;
+  /**
+   * Controlled multi-select notification (for a batch consumer, e.g.
+   * file-commander's copy/move). Fired under `selectionMode === "multi"` whenever
+   * the multi-select SET changes, with the owning `root` and the mount-relative
+   * paths of the current set. Distinct from `onSelect` (the single cursor), which
+   * still fires as before. For a single-panel consumer the set lives within one
+   * root; that root is reported.
+   */
+  onSelectionChange?: (root: ExplorerRoot, relPaths: string[]) => void;
+  /**
+   * Semi-controlled current directory for the flat LIST and ICONS layouts: an
+   * ABSOLUTE directory path the `FsSource` understands — a root's `path` joined
+   * with the browsed subpath, or `null` for the synthetic roots-root. When
+   * provided (`!== undefined`) the prop WINS over internal state: the view renders
+   * that directory and navigation fires `onNavigate(root, relPath)` WITHOUT
+   * mutating internal state, so a controlled consumer updates its own `cwd` and
+   * passes it back (the standard controlled pattern). When omitted the list/icons
+   * cwd is uncontrolled (today's behavior). The COLUMNS layout is always
+   * uncontrolled — `cwd` control covers list/icons (file-commander uses list).
+   */
+  cwd?: string | null;
   onActivate?: (root: ExplorerRoot, relPath: string, isDir: boolean) => void;
   /**
    * Fired when the browsed directory changes in a flat layout (list / icons /
@@ -390,8 +411,10 @@ function FileExplorerView({
   activePath = null,
   selectionMode = "single",
   onSelect,
+  onSelectionChange,
   onActivate,
   onNavigate,
+  cwd: cwdProp,
   layout: layoutProp,
   onLayoutChange,
   storageKey,
@@ -443,9 +466,39 @@ function FileExplorerView({
     store.setActiveFile(activePath);
   }, [store, activePath]);
 
+  // The multi-select SET, subscribed via the store's STABLE snapshot (identity
+  // changes only on a real mutation — see `getSelection`), so this doesn't tear.
+  // On each change, report the mount-relative paths of the set to a batch consumer
+  // via `onSelectionChange`, resolving the owning root (single-panel consumers keep
+  // the set within one root). Runs only under `selectionMode === "multi"`.
+  const selectionSet = useSyncExternalStore(store.subscribe, store.getSelection);
+  const prevSelectionRef = useRef(selectionSet);
+  useEffect(() => {
+    // Skip the mount-time run (no change yet) so we don't emit a spurious empty set.
+    const changed = prevSelectionRef.current !== selectionSet;
+    prevSelectionRef.current = selectionSet;
+    if (!changed) return;
+    if (selectionMode !== "multi" || !onSelectionChange) return;
+    const root = selectionSet.length ? rootByPath(selectionSet[0]) : null;
+    const owner = root ?? ordered[0] ?? null;
+    if (!owner) return;
+    onSelectionChange(
+      owner,
+      selectionSet.map((abs) => toMountRel(owner.path, abs)),
+    );
+  }, [selectionSet, selectionMode, onSelectionChange, rootByPath, ordered]);
+
   // Keep the flat-layout cursors valid as roots come and go — derive, don't store.
+  // When `cwd` is controlled (prop `!== undefined`) it WINS over internal state; a
+  // navigation only fires `onNavigate` (below) and the consumer feeds the new cwd
+  // back. When uncontrolled, the internal state drives it (today's behavior). Either
+  // way the value is validated against the live roots so a stale path can't linger.
+  const controlledCwd = cwdProp !== undefined;
+  const sourceCwd = controlledCwd ? cwdProp : cwd;
   const effCwd =
-    cwd && ordered.some((m) => cwd === m.path || cwd.startsWith(m.path + "/")) ? cwd : null;
+    sourceCwd && ordered.some((m) => sourceCwd === m.path || sourceCwd.startsWith(m.path + "/"))
+      ? sourceCwd
+      : null;
   const effColPath =
     colPath.length && ordered.some((m) => m.path === colPath[0]) ? colPath : [];
 
@@ -455,13 +508,15 @@ function FileExplorerView({
   // synthetic roots-root (no single directory) and is not reported.
   const navigateCwd = useCallback(
     (path: string | null) => {
-      setCwd(path);
+      // Controlled: don't touch internal state — just report; the consumer updates
+      // its own `cwd` and passes it back. Uncontrolled: set internal + report (today).
+      if (!controlledCwd) setCwd(path);
       if (path) {
         const root = rootByPath(path);
         if (root) onNavigate?.(root, toMountRel(root.path, path));
       }
     },
-    [rootByPath, onNavigate],
+    [rootByPath, onNavigate, controlledCwd],
   );
   // The Miller-columns analog: the focused column is the deepest path segment.
   const navigateCols = useCallback(
@@ -803,7 +858,7 @@ function FileExplorerView({
             </div>
           )
         ) : layout === "list" ? (
-          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} handlers={handlers} />
+          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} selectionMode={selectionMode} handlers={handlers} />
         ) : layout === "icons" ? (
           <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} handlers={handlers} />
         ) : layout === "columns" ? (

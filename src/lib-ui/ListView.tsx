@@ -6,7 +6,7 @@
 // `option` rows; arrow keys roam the rows.
 import { memo, useMemo, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
-import { TreeStore, useSelected } from "./treeStore";
+import { TreeStore, useSelected, useInSelection } from "./treeStore";
 import FileGlyph from "./FileGlyph";
 import Breadcrumb from "./Breadcrumb";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
@@ -18,18 +18,27 @@ import type { ExplorerRoot } from "./types";
 
 const ListRow = memo(function ListRow({
   row,
-  selected,
+  store,
+  multi,
+  cursorSelected,
   active,
   onOpen,
   handlers,
 }: {
   row: BrowseRow;
-  selected: boolean;
+  store: TreeStore;
+  multi: boolean;
+  cursorSelected: boolean;
   active: boolean;
   onOpen: (row: BrowseRow) => void;
   handlers: NodeHandlers;
 }) {
   const { ctx, name } = row;
+  // Under multi-select the highlight tracks membership in the store's selection
+  // SET (via `useInSelection`); otherwise it tracks the single cursor. The hook
+  // runs unconditionally (Rules of Hooks) — `multi` picks which drives the class.
+  const inSelection = useInSelection(store, ctx.absPath);
+  const selected = multi ? inSelection : cursorSelected;
   const longPress = useLongPress((x, y) => handlers.onMenu({ clientX: x, clientY: y }, ctx));
   const { dropTarget, rowProps } = useRowInteractions(ctx, handlers, longPress);
   const mountRel = toMountRel(ctx.rootPath, ctx.absPath);
@@ -87,6 +96,7 @@ function ListView({
   cwd,
   setCwd,
   activeFile,
+  selectionMode = "single",
   handlers,
 }: {
   store: TreeStore;
@@ -94,8 +104,10 @@ function ListView({
   cwd: string | null;
   setCwd: (path: string | null) => void;
   activeFile: string | null;
+  selectionMode?: "single" | "multi" | "none";
   handlers: NodeHandlers;
 }) {
+  const multi = selectionMode === "multi";
   const selectedPath = useSelected(store);
   const { mount, rows, loading, errored, empty } = useBrowse(store, cwd, ordered);
   const { crumbs } = useMemo(() => breadcrumbFor(cwd, ordered), [cwd, ordered]);
@@ -111,6 +123,10 @@ function ListView({
 
   const onOpen = (row: BrowseRow) => {
     if (row.ctx.isDir) setCwd(row.ctx.absPath);
+    // Under multi-select a file-row click TOGGLES membership in the selection set
+    // (mark/unmark) rather than moving the single cursor / opening. Directory
+    // navigation and (single/none) activation are unchanged.
+    else if (multi) store.toggleInSelection(row.ctx.absPath);
     else handlers.onActivate(row.ctx.absPath, false);
   };
 
@@ -159,7 +175,9 @@ function ListView({
             <ListRow
               key={row.ctx.absPath}
               row={row}
-              selected={selectedPath === row.ctx.absPath}
+              store={store}
+              multi={multi}
+              cursorSelected={selectedPath === row.ctx.absPath}
               active={!row.ctx.isDir && mountRel === activeFile}
               onOpen={onOpen}
               handlers={handlers}
