@@ -33,6 +33,17 @@ describe("mount metadata (R3-79)", () => {
     expect(isWritableMount(m({ type: "space", path: "/s/1", mode: "rw" }))).toBe(false);
   });
 
+  it("a READ-ONLY worktree is not writable — honor mode, never show-then-EROFS", () => {
+    // `panel.files` gets the edited repo as a `ro` port (`exposesWorkingTree: "ro"`);
+    // a `ro` source clamps even an `rw` binding. Delete/rename/upload must be hidden.
+    expect(isWritableMount(m({ type: "worktree", path: "/mnt/x", mode: "ro" }))).toBe(false);
+    expect(isWritableMount(m({ type: "worktree", path: "/mnt/x", mode: "rw" }))).toBe(true);
+    // A ro worktree renders read-only scopes, not the assumed rw.
+    expect(mountScopes(m({ type: "worktree", path: "/mnt/x", mode: "ro" }))).toEqual([
+      { subtree: "/", mode: "ro" },
+    ]);
+  });
+
   it("eject (R-SPACES-3): spaces eject, worktree + settings never", () => {
     expect(mountSpaceId(m({ type: "firestore", path: "/mnt/a", id: "space:abc" }))).toBe("abc");
     expect(mountSpaceId(m({ type: "firestore", path: "/mnt/a", id: "abc" }))).toBe("abc");

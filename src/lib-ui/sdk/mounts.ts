@@ -53,11 +53,19 @@ export const mountMode = (m: SandboxMount): "ro" | "rw" => m.mode ?? "ro";
 
 /**
  * Whether the explorer should offer WRITE affordances on this mount. v1: only the
- * worktree is writable (mutation rides the first-party `editor:write` host actions).
- * Non-worktree mounts are read-only until per-mount write (UI_AS_APPS_SPEC §3.5)
+ * worktree is writable (mutation rides the first-party `editor:write` host actions);
+ * non-worktree mounts are read-only until per-mount write (UI_AS_APPS_SPEC §3.5)
  * lands — the affordances are HIDDEN, never shown-then-`EROFS`.
+ *
+ * BUT a worktree can itself be exposed READ-ONLY: `panel.files` gets the edited repo
+ * as a `ro` port (`exposesWorkingTree: "ro"`), and a `ro` source (local/space/zip)
+ * clamps even an `rw`-exposing binding to `ro` (SandboxListener's `minMode`). Honor
+ * the mount's own `mode` so a `ro` worktree hides Delete/rename/upload rather than
+ * offering them and then failing `EROFS`. Only an EXPLICIT `ro` downgrades — an
+ * unspecified mode keeps the v1 "the worktree is writable" default.
  */
-export const isWritableMount = (m: SandboxMount): boolean => isWorktree(m);
+export const isWritableMount = (m: SandboxMount): boolean =>
+  isWorktree(m) && m.mode !== "ro";
 
 /** A short subtree label for the single-chip layouts ("/" for a whole-mount grant). */
 export const subtreeLabel = (m: SandboxMount): string => {
