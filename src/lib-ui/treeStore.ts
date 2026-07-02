@@ -27,6 +27,16 @@ export class TreeStore {
   private errored = new Set<string>();
   private inflight = new Set<string>();
   private selected: string | null = null;
+  // A multi-select SET (absolute paths), DISTINCT from `selected` (the single
+  // cursor / active-open path). Used by a batch consumer (file-commander) under
+  // `selectionMode === "multi"`: a row click toggles membership here rather than
+  // moving the single cursor. Held here — keyed by absolute path — so it survives
+  // remounts and each row subscribes to only its own membership via
+  // `useInSelection`. A stable snapshot (`selectionSnapshot`) is cached so
+  // `getSelection` returns the same array identity until the set actually changes,
+  // avoiding `useSyncExternalStore` tearing.
+  private selection = new Set<string>();
+  private selectionSnapshot: string[] = [];
   // The editor's active file (mount-relative, e.g. `/src/App.tsx`), mirrored from
   // the host `editor-context` channel. Held here — NOT threaded as a prop through
   // the memoized tree — so a change re-renders ONLY the two rows whose active state
@@ -86,6 +96,14 @@ export class TreeStore {
     for (const p of [...this.entries.keys()]) if (under(p)) this.entries.delete(p);
     for (const p of [...this.errored]) if (under(p)) this.errored.delete(p);
     if (this.selected && under(this.selected)) this.selected = null;
+    let dropped = false;
+    for (const p of [...this.selection]) {
+      if (under(p)) {
+        this.selection.delete(p);
+        dropped = true;
+      }
+    }
+    if (dropped) this.refreshSelectionSnapshot();
   }
 
   // --- per-path selectors (stable primitive / array snapshots) ---
@@ -95,6 +113,13 @@ export class TreeStore {
   getEntries = (p: string): DirEntry[] | undefined => this.entries.get(p);
   /** The selected absolute path (shared across every layout). */
   getSelected = (): string | null => this.selected;
+  /** Is `p` (absolute) in the multi-select set? Drives the `lrow--selected`
+   *  highlight under `selectionMode === "multi"`. */
+  isInSelection = (p: string): boolean => this.selection.has(p);
+  /** The multi-select set as a stable-identity array (absolute paths). The
+   *  returned array is cached and only re-created when the set changes, so
+   *  `useSyncExternalStore` sees a stable snapshot between real mutations. */
+  getSelection = (): string[] => this.selectionSnapshot;
   /** Is `repoRel` (mount-relative) the editor's active file? Drives the FX-4b row
    *  highlight without a per-node prop (compared mount-relative, matching the
    *  host's `editor-context.activeFile`). */
@@ -120,6 +145,27 @@ export class TreeStore {
   select = (p: string): void => {
     if (this.selected === p) return;
     this.selected = p;
+    this.emit();
+  };
+
+  /** Recompute the cached selection snapshot after a set mutation. */
+  private refreshSelectionSnapshot() {
+    this.selectionSnapshot = [...this.selection];
+  }
+
+  /** Toggle `p` (absolute) in the multi-select set and emit. */
+  toggleInSelection = (p: string): void => {
+    if (this.selection.has(p)) this.selection.delete(p);
+    else this.selection.add(p);
+    this.refreshSelectionSnapshot();
+    this.emit();
+  };
+
+  /** Clear the multi-select set (emits only if it held anything). */
+  clearSelection = (): void => {
+    if (this.selection.size === 0) return;
+    this.selection.clear();
+    this.refreshSelectionSnapshot();
     this.emit();
   };
 
@@ -193,6 +239,13 @@ export function useNode(
 /** Subscribe to the shared selected path (drives the highlight in every layout). */
 export function useSelected(store: TreeStore): string | null {
   return useSyncExternalStore(store.subscribe, store.getSelected);
+}
+
+/** Subscribe a row to ONLY whether it is in the multi-select set. Mirrors
+ *  `useSelected`/`useActive`: keyed by the row's absolute path so toggling one
+ *  row re-renders just that row, not the whole list. */
+export function useInSelection(store: TreeStore, path: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => store.isInSelection(path));
 }
 
 /** Subscribe a node to ONLY whether it is the editor's active file (FX-4b). Keyed

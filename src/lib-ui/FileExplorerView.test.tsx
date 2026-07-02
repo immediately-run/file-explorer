@@ -150,4 +150,78 @@ describe("FileExplorerView (headless, no SDK)", () => {
     // Always the owning root, never a foreign one.
     for (const call of onNavigate.mock.calls) expect(call[0]).toBe(worktree);
   });
+
+  it("controlled cwd: renders the prop's directory; navigating fires onNavigate but does NOT change what's shown until the prop updates", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const { rerender } = render(
+      <FileExplorerView
+        roots={[worktree]}
+        fs={fakeFs}
+        layout="list"
+        cwd="/mnt/abc"
+        onNavigate={onNavigate}
+      />,
+    );
+    // The controlled cwd (`/mnt/abc`) is shown — its entries, not the roots-root.
+    expect(await screen.findByText("src")).toBeInTheDocument();
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+
+    // Navigating into `src` reports via onNavigate but the view stays put (the
+    // consumer owns cwd) — `src`'s children are NOT shown yet.
+    await user.click(screen.getByText("src"));
+    expect(onNavigate).toHaveBeenCalledWith(worktree, expect.stringMatching(/(^|\/)src$/));
+    expect(screen.queryByText("index.ts")).not.toBeInTheDocument();
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+
+    // Feeding the new cwd prop back in shows that directory.
+    rerender(
+      <FileExplorerView
+        roots={[worktree]}
+        fs={fakeFs}
+        layout="list"
+        cwd="/mnt/abc/src"
+        onNavigate={onNavigate}
+      />,
+    );
+    expect(await screen.findByText("index.ts")).toBeInTheDocument();
+    expect(screen.getByText("util.ts")).toBeInTheDocument();
+    expect(screen.queryByText("README.md")).not.toBeInTheDocument();
+  });
+
+  it("multi-select: clicking two files reports a 2-element set; clicking one again toggles it off; rows show selected styling", async () => {
+    const user = userEvent.setup();
+    const onSelectionChange = vi.fn();
+    render(
+      <FileExplorerView
+        roots={[worktree]}
+        fs={fakeFs}
+        layout="list"
+        cwd="/mnt/abc/src"
+        selectionMode="multi"
+        onSelectionChange={onSelectionChange}
+      />,
+    );
+    const indexRow = (await screen.findByText("index.ts")).closest('[role="option"]')!;
+    const utilRow = screen.getByText("util.ts").closest('[role="option"]')!;
+
+    // Click two files → the set grows to two (mount-relative paths, owning root).
+    await user.click(indexRow);
+    expect(onSelectionChange).toHaveBeenLastCalledWith(worktree, ["/src/index.ts"]);
+    await user.click(utilRow);
+    expect(onSelectionChange).toHaveBeenLastCalledWith(
+      worktree,
+      expect.arrayContaining(["/src/index.ts", "/src/util.ts"]),
+    );
+    expect(onSelectionChange.mock.calls.at(-1)![1]).toHaveLength(2);
+    // Both marked rows carry the selected styling.
+    expect(indexRow).toHaveClass("lrow--selected");
+    expect(utilRow).toHaveClass("lrow--selected");
+
+    // Clicking `index.ts` again toggles it OFF → back to a 1-element set.
+    await user.click(indexRow);
+    expect(onSelectionChange).toHaveBeenLastCalledWith(worktree, ["/src/util.ts"]);
+    expect(indexRow).not.toHaveClass("lrow--selected");
+    expect(utilRow).toHaveClass("lrow--selected");
+  });
 });
