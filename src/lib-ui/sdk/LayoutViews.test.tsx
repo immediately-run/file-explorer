@@ -27,6 +27,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@immediately-run/sdk", () => ({
   useMounts: () => h.mounts,
+  useSessionMounts: () => [],
   useEditorContext: () => ({ dirtyPaths: [], openFiles: [], activeFile: h.activeFile }),
   openInEditor: (path: string) => h.openInEditor(path),
   createFile: vi.fn(() => Promise.resolve()),
