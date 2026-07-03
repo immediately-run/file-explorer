@@ -4,6 +4,7 @@
 export { default } from "./SdkFileExplorer"; // SdkFileExplorer — the whole app
 export { default as SdkFileExplorer } from "./SdkFileExplorer";
 export { useSdkRoots } from "./useSdkRoots";
+export { useSessionRoots, type SessionRoot, type SessionRootsResult } from "./useSessionRoots";
 export { sdkFsSource, readdir, readFile, fsAvailable } from "./mountFs";
 export { makeSdkActions } from "./actions";
 export { toExplorerRoot } from "./mounts";

@@ -29,6 +29,9 @@ const TREE: Record<string, DirEntry[]> = {
 // Mutable test doubles, shared with the hoisted module mocks below.
 const h = vi.hoisted(() => ({
   mounts: [] as Array<{ type: string; path: string; id?: string }>,
+  // The first-party Session-lens list (R3-95). Default none: a non-first-party frame
+  // (a fork) receives `[]`, so the "App | Session" toggle never renders.
+  sessionMounts: [] as Array<{ type: string; path: string; id?: string; name?: string; mode?: "ro" | "rw"; forwardedToApp: boolean }>,
   // The editor-context active file (FX-4b). Mutable so a test can move it and
   // re-render, mirroring a host push.
   activeFile: null as string | null,
@@ -46,6 +49,7 @@ const h = vi.hoisted(() => ({
 
 vi.mock("@immediately-run/sdk", () => ({
   useMounts: () => h.mounts,
+  useSessionMounts: () => h.sessionMounts,
   useEditorContext: () => ({ dirtyPaths: [], openFiles: [], activeFile: h.activeFile }),
   openInEditor: (path: string) => h.openInEditor(path),
   createFile: vi.fn(() => Promise.resolve()),
@@ -76,6 +80,7 @@ const worktree = (id = "repo") => ({ type: "worktree", path: "/mnt/abc", id });
 
 beforeEach(() => {
   h.mounts = [worktree()];
+  h.sessionMounts = [];
   h.activeFile = null;
   h.openInEditor.mockClear();
   h.readdir.mockClear();
@@ -361,5 +366,45 @@ describe("R3-83 — drag-out asks the host to begin a cross-app drag", () => {
       name: "index.ts",
       relPath: "/src/index.ts",
     });
+  });
+});
+
+describe("R3-95 — App | Session lens (PRINCIPALS §9 B2 / D-PRIN-4)", () => {
+  const sessionSpace = () => ({
+    type: "space",
+    path: "/spaces/sess",
+    id: "sess",
+    name: "Session space",
+    mode: "ro" as const,
+    forwardedToApp: false,
+  });
+
+  it("(#5) hides the lens toggle when the host delivers no session signal (a fork)", async () => {
+    h.mounts = [worktree()];
+    h.sessionMounts = []; // fork: mounts:registry withheld → empty session list
+    render(<FileExplorer />);
+    expect(await screen.findByRole("tree", { name: "repo" })).toBeInTheDocument();
+    // No Session lens: neither the toggle group nor the Session radio exists.
+    expect(screen.queryByRole("radiogroup", { name: "Mount lens" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "The session's mounts" })).toBeNull();
+  });
+
+  it("shows the toggle for a first-party frame and switches roots to the session mounts", async () => {
+    h.mounts = [worktree()]; // the App lens = this app's own mounts
+    h.sessionMounts = [sessionSpace()]; // first-party: the session's mounts
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+
+    // App lens (default): the app's own worktree shows; the session-only space does NOT
+    // (exit #1 — a session-only mount is never in the app's own view).
+    expect(await screen.findByRole("tree", { name: "repo" })).toBeInTheDocument();
+    expect(screen.queryByRole("tree", { name: "Session space" })).toBeNull();
+
+    // The toggle is present (a session signal arrived). Switch to the Session lens.
+    await user.click(screen.getByRole("radio", { name: "The session's mounts" }));
+
+    // Session lens: the session mount shows; the App-lens worktree is replaced.
+    expect(await screen.findByRole("tree", { name: "Session space" })).toBeInTheDocument();
+    expect(screen.queryByRole("tree", { name: "repo" })).toBeNull();
   });
 });

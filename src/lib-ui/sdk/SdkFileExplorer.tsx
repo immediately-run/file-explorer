@@ -11,7 +11,9 @@ import { useCallback, useEffect, useState } from "react";
 import { FolderTree } from "lucide-react";
 import { useEditorContext, listSettingsApps, openSettingsOf, useMounts } from "@immediately-run/sdk";
 import FileExplorerView from "../FileExplorerView";
+import LensSwitcher, { type Lens } from "../LensSwitcher";
 import { useSdkRoots } from "./useSdkRoots";
+import { useSessionRoots } from "./useSessionRoots";
 import { sdkFsSource } from "./mountFs";
 import { makeSdkActions } from "./actions";
 import { summarizeMenuItems } from "./summarize";
@@ -26,6 +28,15 @@ function SdkFileExplorer() {
   const mounts = useMounts();
   const { activeFile } = useEditorContext();
   const [summary, setSummary] = useState<SummaryTarget | null>(null);
+
+  // The first-party "App | Session" lens (PRINCIPALS §9 B2). `sessionAvailable` is
+  // true only when the host delivered a session signal (first-party frame); a
+  // URL-loaded fork gets none, so the toggle never renders and the app is App-only.
+  const { roots: sessionRoots, available: sessionAvailable } = useSessionRoots();
+  const [lens, setLens] = useState<Lens>("app");
+  // Fall back to App if the session signal goes away (mounts revoked / not first-party).
+  const effectiveLens: Lens = sessionAvailable ? lens : "app";
+  const shownRoots = effectiveLens === "session" ? sessionRoots : roots;
 
   // The "file commander": every app that has per-user settings (elevated
   // `settings:all`). Empty for a fork/preview lacking the capability. Each opened
@@ -57,10 +68,9 @@ function SdkFileExplorer() {
   const unmountedSettingsApps = settingsApps.filter(
     (ak) => !mounts.some((m) => m.id === `settings:${ak}`),
   );
-  const headerActions =
-    unmountedSettingsApps.length > 0 ? (
-      <>
-        {unmountedSettingsApps.map((ak) => (
+  const settingsButtons =
+    unmountedSettingsApps.length > 0
+      ? unmountedSettingsApps.map((ak) => (
           <button
             key={ak}
             type="button"
@@ -70,14 +80,23 @@ function SdkFileExplorer() {
           >
             <FolderTree size={14} aria-hidden="true" /> settings · {ak}
           </button>
-        ))}
+        ))
+      : null;
+
+  // The Session lens toggle leads the header actions, but only when the host
+  // delivered a session signal (first-party). A fork never sees it.
+  const headerActions =
+    sessionAvailable || settingsButtons ? (
+      <>
+        {sessionAvailable && <LensSwitcher value={effectiveLens} onChange={setLens} />}
+        {settingsButtons}
       </>
     ) : undefined;
 
   return (
     <>
       <FileExplorerView
-        roots={roots}
+        roots={shownRoots}
         fs={sdkFsSource}
         actions={actions}
         activePath={activeFile}
