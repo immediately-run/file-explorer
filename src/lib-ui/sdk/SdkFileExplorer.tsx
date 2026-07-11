@@ -9,7 +9,7 @@
 // the parity proof that the extraction is behavior-preserving.
 import { useCallback, useEffect, useState } from "react";
 import { FolderTree } from "lucide-react";
-import { useEditorContext, listSettingsApps, openSettingsOf, useMounts } from "@immediately-run/sdk";
+import { useEditorContext, listSettingsApps, openSettingsOf, useMounts, useRegion } from "@immediately-run/sdk";
 import FileExplorerView from "../FileExplorerView";
 import LensSwitcher, { type Lens } from "../LensSwitcher";
 import { useSdkRoots } from "./useSdkRoots";
@@ -33,7 +33,13 @@ function SdkFileExplorer() {
   // true only when the host delivered a session signal (first-party frame); a
   // URL-loaded fork gets none, so the toggle never renders and the app is App-only.
   const { roots: sessionRoots, available: sessionAvailable } = useSessionRoots();
-  const [lens, setLens] = useState<Lens>("app");
+  // PRINCIPALS §9 B4 (R3-96): as the standalone User-scope `page.commander` surface this
+  // app IS the cross-app "everything you've ever opened" navigator, so it defaults to the
+  // broad `mounts:registry` lens rather than the app's own mounts. In the workbench
+  // `panel.files` projection it defaults to App as before. (A fork never holds
+  // `mounts:registry`, so `sessionAvailable` is false there and it stays App-only anyway.)
+  const isCommander = useRegion() === "page.commander";
+  const [lens, setLens] = useState<Lens>(isCommander ? "session" : "app");
   // Fall back to App if the session signal goes away (mounts revoked / not first-party).
   const effectiveLens: Lens = sessionAvailable ? lens : "app";
   const shownRoots = effectiveLens === "session" ? sessionRoots : roots;
