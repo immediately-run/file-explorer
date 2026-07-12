@@ -45,6 +45,9 @@ const h = vi.hoisted(() => ({
   cancelItemDrag: vi.fn(() => {}),
   readdir: vi.fn((path: string) => Promise.resolve(TREE[path] ?? [])),
   listSettingsApps: vi.fn((): Promise<string[]> => Promise.resolve([])),
+  // The app's RegionId (R3-96): `page.commander` makes the app default to the broad
+  // registry lens. Default null (a `panel.files` projection behaves App-first as before).
+  region: null as string | null,
 }));
 
 vi.mock("@immediately-run/sdk", () => ({
@@ -63,6 +66,7 @@ vi.mock("@immediately-run/sdk", () => ({
   // settings:all enumeration — default to none so the base file tree is unaffected.
   listSettingsApps: () => h.listSettingsApps(),
   openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
+  useRegion: () => h.region,
 }));
 
 vi.mock("./mountFs", () => ({
@@ -82,6 +86,7 @@ beforeEach(() => {
   h.mounts = [worktree()];
   h.sessionMounts = [];
   h.activeFile = null;
+  h.region = null;
   h.openInEditor.mockClear();
   h.readdir.mockClear();
 });
@@ -406,5 +411,19 @@ describe("R3-95 — App | Session lens (PRINCIPALS §9 B2 / D-PRIN-4)", () => {
     // Session lens: the session mount shows; the App-lens worktree is replaced.
     expect(await screen.findByRole("tree", { name: "Session space" })).toBeInTheDocument();
     expect(screen.queryByRole("tree", { name: "repo" })).toBeNull();
+  });
+
+  it("(R3-96 step 4b) as the page.commander surface, DEFAULTS to the registry lens — no toggle", async () => {
+    h.mounts = [worktree()]; // the app's own worktree (App lens)
+    h.sessionMounts = [sessionSpace()]; // first-party registry lens available
+    h.region = "page.commander"; // the standalone User-scope full manager
+    render(<FileExplorer />);
+    // WITHOUT clicking the toggle: the commander opens on the broad registry lens
+    // (the "everything you've ever opened" navigator), so the session mount is the
+    // default view and the app's own worktree is NOT.
+    expect(await screen.findByRole("tree", { name: "Session space" })).toBeInTheDocument();
+    expect(screen.queryByRole("tree", { name: "repo" })).toBeNull();
+    // The toggle is still present so the user can narrow to the App lens.
+    expect(screen.getByRole("radio", { name: "The session's mounts" })).toBeInTheDocument();
   });
 });
