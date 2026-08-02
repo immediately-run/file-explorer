@@ -8,10 +8,12 @@
 // The existing FileExplorer test suite renders THIS and keeps the same SDK mocks —
 // the parity proof that the extraction is behavior-preserving.
 import { useCallback, useEffect, useState } from "react";
-import { FolderTree } from "lucide-react";
+import { FolderTree, Eye, EyeOff } from "lucide-react";
 import { useEditorContext, listSettingsApps, openSettingsOf, useMounts, useRegion } from "@immediately-run/sdk";
 import FileExplorerView from "../FileExplorerView";
 import LensSwitcher, { type Lens } from "../LensSwitcher";
+import { useShowAllFilesystems } from "../hooks/useShowAllFilesystems";
+import { isSettingsMount } from "./mounts";
 import { useSdkRoots } from "./useSdkRoots";
 import { useSessionRoots } from "./useSessionRoots";
 import { sdkFsSource } from "./mountFs";
@@ -24,7 +26,11 @@ import type { ExplorerActions, MenuItem, RowCtx } from "../types";
 const actions: ExplorerActions = makeSdkActions();
 
 function SdkFileExplorer() {
-  const roots = useSdkRoots();
+  // R3-238: settings stores and the affordance that opens them are advanced plumbing,
+  // hidden unless the user opts in. One flag governs BOTH halves — a session that shows
+  // no `settings:` roots must not still advertise `settings · <app>` buttons.
+  const [showAll, setShowAll] = useShowAllFilesystems();
+  const roots = useSdkRoots(showAll);
   const mounts = useMounts();
   const { activeFile } = useEditorContext();
   const [summary, setSummary] = useState<SummaryTarget | null>(null);
@@ -32,7 +38,11 @@ function SdkFileExplorer() {
   // The first-party "App | Session" lens (PRINCIPALS §9 B2). `sessionAvailable` is
   // true only when the host delivered a session signal (first-party frame); a
   // URL-loaded fork gets none, so the toggle never renders and the app is App-only.
-  const { roots: sessionRoots, available: sessionAvailable } = useSessionRoots();
+  const {
+    roots: sessionRoots,
+    available: sessionAvailable,
+    hidden: sessionHidden,
+  } = useSessionRoots(showAll);
   // PRINCIPALS §9 B4 (R3-96): as the standalone User-scope `page.commander` surface this
   // app IS the cross-app "everything you've ever opened" navigator, so it defaults to the
   // broad `mounts:registry` lens rather than the app's own mounts. In the workbench
@@ -75,7 +85,7 @@ function SdkFileExplorer() {
     (ak) => !mounts.some((m) => m.id === `settings:${ak}`),
   );
   const settingsButtons =
-    unmountedSettingsApps.length > 0
+    showAll && unmountedSettingsApps.length > 0
       ? unmountedSettingsApps.map((ak) => (
           <button
             key={ak}
@@ -89,12 +99,32 @@ function SdkFileExplorer() {
         ))
       : null;
 
+  // The reveal affordance is offered only when this session actually HAS something
+  // hidden — otherwise every ordinary session pays for an advanced control it can
+  // never use. Once the flag is on it stays offered, so the door swings both ways.
+  const hasHidden =
+    mounts.some(isSettingsMount) || sessionHidden > 0 || unmountedSettingsApps.length > 0;
+  const showAllToggle =
+    showAll || hasHidden ? (
+      <button
+        type="button"
+        className="panel__action"
+        aria-pressed={showAll}
+        title={showAll ? "Hide advanced filesystems" : "Show all filesystems"}
+        aria-label={showAll ? "Hide advanced filesystems" : "Show all filesystems"}
+        onClick={() => setShowAll(!showAll)}
+      >
+        {showAll ? <Eye size={15} aria-hidden="true" /> : <EyeOff size={15} aria-hidden="true" />}
+      </button>
+    ) : null;
+
   // The Session lens toggle leads the header actions, but only when the host
   // delivered a session signal (first-party). A fork never sees it.
   const headerActions =
-    sessionAvailable || settingsButtons ? (
+    sessionAvailable || showAllToggle || settingsButtons ? (
       <>
         {sessionAvailable && <LensSwitcher value={effectiveLens} onChange={setLens} />}
+        {showAllToggle}
         {settingsButtons}
       </>
     ) : undefined;

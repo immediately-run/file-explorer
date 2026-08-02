@@ -427,3 +427,99 @@ describe("R3-95 — App | Session lens (PRINCIPALS §9 B2 / D-PRIN-4)", () => {
     expect(screen.getByRole("radio", { name: "The session's mounts" })).toBeInTheDocument();
   });
 });
+
+describe("R3-238 — settings filesystems are hidden behind one advanced flag", () => {
+  const settingsMount = () => ({
+    type: "firestore",
+    path: "/mnt/set/color-picker",
+    id: "settings:color-picker",
+    name: "color-picker settings",
+    mode: "rw" as const,
+  });
+
+  beforeEach(() => {
+    localStorage.clear(); // the flag persists; each case starts from the shipped default
+  });
+
+  it("a default session shows no settings root and no `settings · <app>` button", async () => {
+    h.mounts = [worktree(), settingsMount()];
+    h.listSettingsApps.mockResolvedValue(["agent-demo"]); // an app whose store isn't mounted
+    render(<FileExplorer />);
+
+    // The ordinary mount is untouched…
+    expect(await screen.findByRole("tree", { name: "repo" })).toBeInTheDocument();
+    // …and both settings affordances are absent.
+    expect(screen.queryByRole("tree", { name: "color-picker settings" })).toBeNull();
+    expect(screen.queryByTitle("Open agent-demo settings")).toBeNull();
+    // The reveal control is offered, because this session HAS something hidden.
+    expect(screen.getByRole("button", { name: "Show all filesystems" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("toggling the flag restores both the settings root and the header button, and persists", async () => {
+    h.mounts = [worktree(), settingsMount()];
+    h.listSettingsApps.mockResolvedValue(["agent-demo"]);
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+    await screen.findByRole("tree", { name: "repo" });
+
+    await user.click(screen.getByRole("button", { name: "Show all filesystems" }));
+
+    expect(await screen.findByRole("tree", { name: "color-picker settings" })).toBeInTheDocument();
+    expect(await screen.findByTitle("Open agent-demo settings")).toBeInTheDocument();
+    // The ordinary mount is still there — this reveals, it does not replace.
+    expect(screen.getByRole("tree", { name: "repo" })).toBeInTheDocument();
+    expect(localStorage.getItem("ir.fileexplorer.showAllFilesystems")).toBe("1");
+    // And the door swings back.
+    expect(screen.getByRole("button", { name: "Hide advanced filesystems" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("offers no reveal control when the session has nothing hidden", async () => {
+    h.mounts = [worktree()];
+    h.listSettingsApps.mockResolvedValue([]);
+    render(<FileExplorer />);
+    await screen.findByRole("tree", { name: "repo" });
+    expect(screen.queryByRole("button", { name: "Show all filesystems" })).toBeNull();
+  });
+
+  it("keeps the reveal control reachable when EVERYTHING is hidden (no dead end)", async () => {
+    // The pathological commander case: every mount is a settings store, so the root
+    // list is empty. The header's action cluster used to be gated on having roots —
+    // which would hide the one control that brings them back.
+    h.mounts = [settingsMount()];
+    h.listSettingsApps.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+
+    const toggle = await screen.findByRole("button", { name: "Show all filesystems" });
+    expect(screen.queryByRole("tree")).toBeNull();
+    await user.click(toggle);
+    expect(await screen.findByRole("tree", { name: "color-picker settings" })).toBeInTheDocument();
+  });
+
+  it("hides settings stores in the Session lens too (the commander's default view)", async () => {
+    h.mounts = [worktree()];
+    h.sessionMounts = [
+      { type: "space", path: "/spaces/s", id: "space:s", name: "Session space", mode: "ro", forwardedToApp: false },
+      { ...settingsMount(), forwardedToApp: false },
+    ];
+    h.region = "page.commander"; // defaults to the Session lens
+    h.listSettingsApps.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+
+    expect(await screen.findByRole("tree", { name: "Session space" })).toBeInTheDocument();
+    expect(screen.queryByRole("tree", { name: "color-picker settings" })).toBeNull();
+    // The lens toggle still renders — `available` reads the raw session signal, not
+    // the filtered roots, so filtering can never strand the user in one lens.
+    expect(screen.getByRole("radio", { name: "The session's mounts" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show all filesystems" }));
+    expect(await screen.findByRole("tree", { name: "color-picker settings" })).toBeInTheDocument();
+  });
+});

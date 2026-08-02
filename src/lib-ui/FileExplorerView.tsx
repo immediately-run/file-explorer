@@ -798,19 +798,28 @@ function FileExplorerView({
       <header className="panel__head">
         <span className="panel__glyph">{glyph}</span>
         <span className="panel__title">{title}</span>
-        {hasRoots && (
+        {/* The view's OWN affordances (layout, collapse) act on roots, so they stay
+            gated on having some. A caller-supplied action may be the very thing that
+            PRODUCES roots (R3-238's "show all filesystems" reveal), so the cluster
+            renders for it even when the list is empty — a control that disappears
+            exactly when it is needed is a trap. */}
+        {(hasRoots || header?.actions) && (
           <div className="panel__actions">
-            <LayoutSwitcher value={layout} onChange={chooseLayout} />
-            {layout === "tree" && (
-              <button
-                type="button"
-                className="panel__action"
-                title="Collapse all folders"
-                aria-label="Collapse all folders"
-                onClick={() => store.collapseAll()}
-              >
-                <ChevronsDownUp size={15} aria-hidden="true" />
-              </button>
+            {hasRoots && (
+              <>
+                <LayoutSwitcher value={layout} onChange={chooseLayout} />
+                {layout === "tree" && (
+                  <button
+                    type="button"
+                    className="panel__action"
+                    title="Collapse all folders"
+                    aria-label="Collapse all folders"
+                    onClick={() => store.collapseAll()}
+                  >
+                    <ChevronsDownUp size={15} aria-hidden="true" />
+                  </button>
+                )}
+              </>
             )}
             {header?.actions}
           </div>
