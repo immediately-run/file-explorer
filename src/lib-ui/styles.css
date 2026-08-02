@@ -48,6 +48,12 @@
 }
 
 /* ---- header ---- */
+/* The header is a FIXED-HEIGHT strip whose contents are DATA (mount labels, app
+   keys) — so nothing in it may wrap or dictate its size (R3-239). The rule is:
+   text truncates, chrome keeps its intrinsic size, and the header's height is a
+   function of its padding alone. Every `min-width: 0` below exists because a flex
+   item's default `min-width: auto` refuses to shrink past its content, which is
+   what turns one long label into an overflowing (or wrapping) header. */
 .panel__head {
   display: flex;
   align-items: center;
@@ -55,6 +61,8 @@
   padding: 12px 14px;
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .panel__glyph {
   display: grid;
@@ -64,12 +72,20 @@
   border-radius: var(--r-sm);
   background: var(--panel-2);
   color: var(--accent-pink);
+  /* A 24px square, not a shrinkable one. */
+  flex: 0 0 auto;
 }
 .panel__title {
   font-family: var(--disp);
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 0.01em;
+  /* Yields to the action cluster rather than pushing it out of the header. */
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Header affordance (collapse all) — pushed to the right of the title. */
@@ -93,8 +109,62 @@
 }
 
 /* Header action cluster (new file / new folder / collapse). */
-.panel__actions { margin-left: auto; display: inline-flex; gap: 2px; }
+.panel__actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  /* Shrinkable, one row, never taller than its tallest control (R3-239). */
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
 .panel__actions .panel__action { margin-left: 0; }
+/* Icon-only affordances keep their 26px box no matter how crowded the row gets. */
+.panel__actions .panel__action,
+.panel__actions .viewswitch { flex: 0 0 auto; }
+
+/* Per-app settings entry point ("settings · <app>"): the ONE header control whose
+   width is driven by data (the app key). It shrinks first and truncates, so a long
+   app key can neither grow the header nor push the view switcher off the row. Height
+   is pinned to the sibling icon buttons' 26px so the strip's height is label-
+   independent by construction. */
+.settings-app {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 22ch;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink-3);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.settings-app:hover { color: var(--ink); border-color: var(--accent-pink); }
+.settings-app:focus-visible { outline: none; box-shadow: var(--glow); }
+/* The icon is chrome (fixed); the label is data (truncates). */
+.settings-app > svg { flex: 0 0 auto; }
+/* In a narrow panel the button goes icon-only rather than showing a few pixels of
+   ellipsis — the same threshold and reasoning as `.viewswitch__label` above. The
+   `title` still names the app, so nothing is lost. */
+.settings-app__label { display: none; }
+@container panel (min-width: 360px) {
+  .settings-app__label {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
 
 /* Inline "new file/folder" path input. */
 .panel__create { padding: 6px 10px; border-bottom: 1px solid var(--line); }
@@ -409,6 +479,14 @@
 .viewswitch__label { display: none; }
 @container panel (min-width: 360px) {
   .viewswitch__label { display: inline; }
+}
+/* …but the switcher's text labels are the header's biggest single consumer (261px
+   vs 117px icon-only). When the consumer also supplied header controls, 360px is no
+   longer enough room for both, so the switcher stays compact until the panel is
+   genuinely wide (R3-239). Without this the header spills horizontally — which it
+   already did before this item, by 50–72px. */
+@container panel (max-width: 520px) {
+  .panel__actions--extra .viewswitch__label { display: none; }
 }
 
 /* ---- shared layout shell ---- */
