@@ -31,6 +31,40 @@ describe("useSdkRoots — library-mount exclusion (§8.3)", () => {
     expect(ids).not.toContain("github:o/r@main"); // the library mount is hidden
   });
 
+  it("hides per-app settings stores by default, and reveals them with showAll (R3-238)", () => {
+    mounts.length = 0;
+    mounts.push(
+      { path: "/mnt/wt", type: "worktree", id: "wt", name: "repo" },
+      { path: "/mnt/set", type: "settings", id: "settings:color-picker", name: "color-picker" },
+      { path: "/mnt/sp", type: "space", id: "space:1", name: "My space" },
+      { path: "/mnt/set2", type: "settings", id: "settings:agent-demo", name: "agent-demo" },
+    );
+
+    const hidden = renderHook(() => useSdkRoots());
+    expect(hidden.result.current.map((r) => r.id)).toEqual(["wt", "space:1"]);
+
+    // …and the flag brings them back, in the host's original mount order (this only
+    // ever filters — it never reorders, so `orderMounts` downstream is unaffected).
+    const shown = renderHook(() => useSdkRoots(true));
+    expect(shown.result.current.map((r) => r.id)).toEqual([
+      "wt",
+      "settings:color-picker",
+      "space:1",
+      "settings:agent-demo",
+    ]);
+  });
+
+  it("still drops library mounts when showAll is on (that exclusion is not user-toggleable)", () => {
+    mounts.length = 0;
+    mounts.push(
+      { path: "/mnt/lib", type: "github", id: "github:o/r@main", name: "o/r", moduleName: "@scope/lib" },
+      { path: "/mnt/set", type: "settings", id: "settings:app", name: "app" },
+    );
+    expect(renderHook(() => useSdkRoots(true)).result.current.map((r) => r.id)).toEqual([
+      "settings:app",
+    ]);
+  });
+
   it("returns all mounts when none are library mounts", () => {
     mounts.length = 0;
     mounts.push(
