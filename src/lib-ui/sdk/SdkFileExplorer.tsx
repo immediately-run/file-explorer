@@ -94,7 +94,11 @@ function SdkFileExplorer() {
             onClick={() => openAppSettings(ak)}
             title={`Open ${ak} settings`}
           >
-            <FolderTree size={14} aria-hidden="true" /> settings · {ak}
+            <FolderTree size={14} aria-hidden="true" />
+            {/* The label is its own element so it can ellipsis-truncate (R3-239):
+                `text-overflow` needs a block container, and a bare text node inside
+                a flex button is an anonymous item that can only overflow. */}
+            <span className="settings-app__label">settings · {ak}</span>
           </button>
         ))
       : null;

@@ -523,3 +523,37 @@ describe("R3-238 — settings filesystems are hidden behind one advanced flag", 
     expect(await screen.findByRole("tree", { name: "color-picker settings" })).toBeInTheDocument();
   });
 });
+
+describe("R3-239 — the header's size must not follow the mount-label length", () => {
+  // The fix is CSS, which jsdom cannot lay out. What jsdom CAN pin is the MARKUP
+  // CONTRACT the CSS depends on — the two seams that would silently un-fix it:
+  // an ellipsis needs its own block box (a bare text node in a flex button can only
+  // overflow), and the compact-view-switcher rule keys off the `--extra` modifier.
+  // Geometry itself is verified in a headless-Chrome harness; numbers in the PR.
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem("ir.fileexplorer.showAllFilesystems", "1");
+  });
+
+  it("renders the settings-app label in its own truncatable element", async () => {
+    h.mounts = [worktree()];
+    h.listSettingsApps.mockResolvedValue(["a-really-long-application-key"]);
+    render(<FileExplorer />);
+
+    const btn = await screen.findByTitle("Open a-really-long-application-key settings");
+    const label = btn.querySelector(".settings-app__label");
+    expect(label).not.toBeNull();
+    expect(label).toHaveTextContent("settings · a-really-long-application-key");
+    // The label must be the ONLY text — an icon sibling, not a text sibling, or the
+    // anonymous text node reappears and defeats `text-overflow`.
+    expect(btn.textContent).toBe(label!.textContent);
+  });
+
+  it("marks the action cluster `--extra` when a consumer supplies header controls", async () => {
+    h.mounts = [worktree()];
+    h.listSettingsApps.mockResolvedValue(["cp"]);
+    render(<FileExplorer />);
+    await screen.findByTitle("Open cp settings");
+    expect(document.querySelector(".panel__actions")).toHaveClass("panel__actions--extra");
+  });
+});

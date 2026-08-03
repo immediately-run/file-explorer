@@ -804,7 +804,12 @@ function FileExplorerView({
             renders for it even when the list is empty — a control that disappears
             exactly when it is needed is a trap. */}
         {(hasRoots || header?.actions) && (
-          <div className="panel__actions">
+          // `--extra` marks a header carrying consumer-supplied controls on top of
+          // the view's own. The stylesheet uses it to keep the view switcher compact
+          // until the panel is genuinely wide (R3-239): the switcher's text labels
+          // are the header's largest single consumer, and a container query cannot
+          // see how many siblings it is competing with.
+          <div className={"panel__actions" + (header?.actions ? " panel__actions--extra" : "")}>
             {hasRoots && (
               <>
                 <LayoutSwitcher value={layout} onChange={chooseLayout} />
