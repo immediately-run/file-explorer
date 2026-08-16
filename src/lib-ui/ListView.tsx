@@ -5,8 +5,8 @@
 // upload, drag-out, delete) via `useRowInteractions`. ARIA: a `listbox` of
 // `option` rows; arrow keys roam the rows.
 import { memo, useMemo, useRef, useState } from "react";
-import { Trash2 } from "lucide-react";
-import { TreeStore, useSelected, useInSelection } from "./treeStore";
+import { Trash2, Play } from "lucide-react";
+import { TreeStore, useSelected, useInSelection, useViewed } from "./treeStore";
 import FileGlyph from "./FileGlyph";
 import Breadcrumb from "./Breadcrumb";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
@@ -42,6 +42,10 @@ const ListRow = memo(function ListRow({
   const longPress = useLongPress((x, y) => handlers.onMenu({ clientX: x, clientY: y }, ctx));
   const { dropTarget, rowProps } = useRowInteractions(ctx, handlers, longPress);
   const mountRel = toMountRel(ctx.rootPath, ctx.absPath);
+  // The stage's "on stage" marker (R3-268) — store-subscribed per row like the
+  // tree's, so a navigation re-renders only the affected rows.
+  const viewedMatch = useViewed(store, mountRel);
+  const viewed = !ctx.isDir && viewedMatch;
   const deletable = ctx.writable && ctx.absPath !== ctx.rootPath && !isProtected(mountRel);
 
   return (
@@ -54,6 +58,7 @@ const ListRow = memo(function ListRow({
         "lrow" +
         (selected ? " lrow--selected" : "") +
         (active ? " lrow--active" : "") +
+        (viewed ? " lrow--viewed" : "") +
         (dropTarget ? " lrow--droptarget" : "")
       }
       onClick={() => onOpen(row)}
@@ -70,6 +75,16 @@ const ListRow = memo(function ListRow({
           <FileGlyph name={name} isDir={ctx.isDir} />
         </span>
         <span className="lrow__label">{name}</span>
+        {viewed && (
+          <span
+            className="lrow__viewed"
+            role="img"
+            aria-label="Shown in the running app"
+            title="Shown in the running app"
+          >
+            <Play size={11} aria-hidden="true" />
+          </span>
+        )}
       </span>
       <span className="lrow__type">{fileTypeLabel(name, ctx.isDir)}</span>
       {deletable && (

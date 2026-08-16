@@ -21,6 +21,7 @@ const ColRow = memo(function ColRow({
   inPath,
   selected,
   active,
+  viewed,
   onChoose,
   handlers,
 }: {
@@ -28,6 +29,8 @@ const ColRow = memo(function ColRow({
   inPath: boolean;
   selected: boolean;
   active: boolean;
+  /** The stage's viewed-document marker (R3-268) — highlight-only. */
+  viewed: boolean;
   onChoose: (row: BrowseRow) => void;
   handlers: NodeHandlers;
 }) {
@@ -42,12 +45,14 @@ const ColRow = memo(function ColRow({
       role="option"
       aria-selected={selected || inPath}
       aria-current={active ? "true" : undefined}
+      title={viewed ? "Shown in the running app" : undefined}
       tabIndex={0}
       className={
         "crow" +
         (inPath ? " crow--path" : "") +
         (selected ? " crow--selected" : "") +
         (active ? " crow--active" : "") +
+        (viewed ? " crow--viewed" : "") +
         (dropTarget ? " crow--droptarget" : "")
       }
       onClick={() => onChoose(row)}
@@ -90,6 +95,7 @@ const Column = memo(function Column({
   pathAtLevel,
   selectedPath,
   activeFile,
+  viewedFile,
   focused,
   onChoose,
   handlers,
@@ -101,6 +107,8 @@ const Column = memo(function Column({
   pathAtLevel: string | null;
   selectedPath: string | null;
   activeFile: string | null;
+  /** The stage's viewed-document hint (R3-268), mount-relative or null. */
+  viewedFile: string | null;
   focused: boolean;
   onChoose: (level: number, row: BrowseRow) => void;
   handlers: NodeHandlers;
@@ -135,6 +143,7 @@ const Column = memo(function Column({
               inPath={row.ctx.absPath === pathAtLevel}
               selected={selectedPath === row.ctx.absPath}
               active={!row.ctx.isDir && mountRel === activeFile}
+              viewed={!row.ctx.isDir && mountRel === viewedFile}
               onChoose={(r) => onChoose(level, r)}
               handlers={handlers}
             />
@@ -151,6 +160,7 @@ function ColumnView({
   colPath,
   setColPath,
   activeFile,
+  viewedFile,
   handlers,
 }: {
   store: TreeStore;
@@ -158,6 +168,8 @@ function ColumnView({
   colPath: string[];
   setColPath: (next: string[]) => void;
   activeFile: string | null;
+  /** The stage's viewed-document hint (R3-268), mount-relative or null. */
+  viewedFile: string | null;
   handlers: NodeHandlers;
 }) {
   const selectedPath = useSelected(store);
@@ -232,6 +244,7 @@ function ColumnView({
           pathAtLevel={colPath[level] ?? null}
           selectedPath={selectedPath}
           activeFile={activeFile}
+          viewedFile={viewedFile}
           focused={level === colPath.length}
           onChoose={onChoose}
           handlers={handlers}
