@@ -32,7 +32,13 @@ function SdkFileExplorer() {
   const [showAll, setShowAll] = useShowAllFilesystems();
   const roots = useSdkRoots(showAll);
   const mounts = useMounts();
-  const { activeFile } = useEditorContext();
+  const editorContext = useEditorContext();
+  const { activeFile } = editorContext;
+  // The stage's viewed-document hint (R3-268). Read defensively so this app
+  // works against both SDK generations: an SDK without the field yields
+  // `undefined` → no marker, never a crash.
+  const viewedFile =
+    (editorContext as { viewedFile?: string | null }).viewedFile ?? null;
   const [summary, setSummary] = useState<SummaryTarget | null>(null);
 
   // The first-party "App | Session" lens (PRINCIPALS §9 B2). `sessionAvailable` is
@@ -140,6 +146,7 @@ function SdkFileExplorer() {
         fs={sdkFsSource}
         actions={actions}
         activePath={activeFile}
+        viewedPath={viewedFile}
         extraMenuItems={extraMenuItems}
         header={{ actions: headerActions }}
       />

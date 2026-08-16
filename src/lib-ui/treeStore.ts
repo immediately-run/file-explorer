@@ -42,6 +42,11 @@ export class TreeStore {
   // the memoized tree — so a change re-renders ONLY the two rows whose active state
   // flips (via `useSyncExternalStore`), never the whole tree (FX-1 / FX-4b).
   private activeFile: string | null = null;
+  // The stage's viewed-document hint (mount-relative), mirrored from the host
+  // `editor-context.viewedFile` (R3-268). Same store-not-prop shape as
+  // `activeFile` (FX-4b): a change re-renders only the affected rows.
+  // Highlight-only by contract — the store never scrolls or selects on it.
+  private viewedFile: string | null = null;
   private roots = new Set<string>();
   private listeners = new Set<() => void>();
 
@@ -126,6 +131,11 @@ export class TreeStore {
   isActive = (repoRel: string): boolean => this.activeFile === repoRel;
   /** The editor's active file, mount-relative (shared across every layout). */
   getActiveFile = (): string | null => this.activeFile;
+  /** Is `repoRel` the file the STAGE claims to be rendering (R3-268)? Drives the
+   *  "on stage" marker, visually distinct from the editor-active highlight. */
+  isViewed = (repoRel: string): boolean => this.viewedFile === repoRel;
+  /** The stage's viewed-document hint, mount-relative (or null — no hint). */
+  getViewedFile = (): string | null => this.viewedFile;
 
   // --- mutations (called from handlers / effects, never during render) ---
   toggle = (p: string): void => {
@@ -174,6 +184,14 @@ export class TreeStore {
   setActiveFile = (next: string | null): void => {
     if (this.activeFile === next) return;
     this.activeFile = next;
+    this.emit();
+  };
+
+  /** Mirror the stage's viewed-document hint (mount-relative; R3-268). Emits only
+   *  on a real change so a navigation re-renders just the affected rows. */
+  setViewedFile = (next: string | null): void => {
+    if (this.viewedFile === next) return;
+    this.viewedFile = next;
     this.emit();
   };
 
@@ -253,6 +271,13 @@ export function useInSelection(store: TreeStore, path: string): boolean {
  *  active state flips — not the whole memoized tree. */
 export function useActive(store: TreeStore, repoRel: string): boolean {
   return useSyncExternalStore(store.subscribe, () => store.isActive(repoRel));
+}
+
+/** Subscribe a node to ONLY whether it is the stage's viewed document (R3-268).
+ *  Mirrors {@link useActive}: keyed per row so a navigation re-renders just the
+ *  two rows whose viewed state flips. */
+export function useViewed(store: TreeStore, repoRel: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => store.isViewed(repoRel));
 }
 
 /**

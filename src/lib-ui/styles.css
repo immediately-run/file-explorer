@@ -392,6 +392,22 @@
    file can be selected without being the editor's active file, and vice versa. */
 .tnode--active .tnode__name { color: var(--accent-violet); }
 
+/* R3-268 — the stage's "on stage" marker: a small play glyph after the name,
+   visually distinct from the editor-active (violet name) highlight. Deliberately
+   subtle and highlight-only: no background sweep, nothing that reads as
+   selection or focus. */
+.tnode__viewed,
+.lrow__viewed {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  color: var(--accent-pink, #ff7ab6);
+  opacity: 0.85;
+  flex: 0 0 auto;
+}
+.tile--viewed .tile__name,
+.crow--viewed .crow__name { text-decoration: underline dotted; text-underline-offset: 3px; }
+
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---- states ---- */

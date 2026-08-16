@@ -29,9 +29,10 @@ import {
   ExternalLink,
   Lock,
   CircleArrowUp,
+  Play,
   type LucideIcon,
 } from "lucide-react";
-import { TreeStore, useNode, useActive } from "./treeStore";
+import { TreeStore, useNode, useActive, useViewed } from "./treeStore";
 import ContextMenu from "./ContextMenu";
 import LayoutSwitcher from "./LayoutSwitcher";
 import ListView from "./ListView";
@@ -74,6 +75,11 @@ export interface FileExplorerViewProps {
   actions?: ExplorerActions;
   /** Controlled highlight (the editor's open file, mount-relative). */
   activePath?: string | null;
+  /** The stage's viewed-document hint (mount-relative, leading slash; R3-268) —
+   *  the file the RUNNING APP claims to be rendering, or null. Rendered as a
+   *  marker visually distinct from the editor-active highlight. Highlight-only:
+   *  the explorer never scrolls, selects, or navigates on it. */
+  viewedPath?: string | null;
   selectionMode?: "single" | "multi" | "none";
   onSelect?: (root: ExplorerRoot, relPath: string) => void;
   /**
@@ -157,6 +163,9 @@ const TreeNode = memo(function TreeNode({
   // an active-path change re-renders only the affected rows (FX-4b).
   const activeMatch = useActive(store, repoRel);
   const active = !isDir && activeMatch;
+  // The "on stage" marker (R3-268) — same per-node subscription shape as active.
+  const viewedMatch = useViewed(store, repoRel);
+  const viewed = !isDir && viewedMatch;
   const deletable = writable && !isProtected(repoRel) && !!handlers.onDelete;
   const rowCtx: RowCtx = { absPath: path, isDir, rootPath, mountId, writable };
 
@@ -226,6 +235,7 @@ const TreeNode = memo(function TreeNode({
           "tnode" +
           (selected ? " tnode--selected" : "") +
           (active ? " tnode--active" : "") +
+          (viewed ? " tnode--viewed" : "") +
           (dropTarget ? " tnode--droptarget" : "")
         }
         style={{ paddingLeft: 8 + depth * 14 }}
@@ -253,6 +263,16 @@ const TreeNode = memo(function TreeNode({
           <Icon size={15} aria-hidden="true" />
         </span>
         <span className="tnode__name">{name}</span>
+        {viewed && (
+          <span
+            className="tnode__viewed"
+            role="img"
+            aria-label="Shown in the running app"
+            title="Shown in the running app"
+          >
+            <Play size={11} aria-hidden="true" />
+          </span>
+        )}
         {loading && (
           <span className="tnode__spin" aria-hidden="true">
             <Loader2 size={13} />
@@ -409,6 +429,7 @@ function FileExplorerView({
   fs,
   actions,
   activePath = null,
+  viewedPath = null,
   selectionMode = "single",
   onSelect,
   onSelectionChange,
@@ -465,6 +486,10 @@ function FileExplorerView({
   useEffect(() => {
     store.setActiveFile(activePath);
   }, [store, activePath]);
+  // Mirror the stage's viewed-document hint the same way (R3-268).
+  useEffect(() => {
+    store.setViewedFile(viewedPath);
+  }, [store, viewedPath]);
 
   // The multi-select SET, subscribed via the store's STABLE snapshot (identity
   // changes only on a real mutation — see `getSelection`), so this doesn't tear.
@@ -874,9 +899,9 @@ function FileExplorerView({
         ) : layout === "list" ? (
           <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} selectionMode={selectionMode} handlers={handlers} />
         ) : layout === "icons" ? (
-          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} handlers={handlers} />
+          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} viewedFile={viewedPath} handlers={handlers} />
         ) : layout === "columns" ? (
-          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={navigateCols} activeFile={activePath} handlers={handlers} />
+          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={navigateCols} activeFile={activePath} viewedFile={viewedPath} handlers={handlers} />
         ) : (
           ordered.map((m) => (
             <Scope

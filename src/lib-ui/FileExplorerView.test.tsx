@@ -55,6 +55,26 @@ describe("FileExplorerView (headless, no SDK)", () => {
     expect(readdir).toHaveBeenCalledWith("/mnt/abc/src");
   });
 
+  it("R3-268: the viewed-document marker renders on its row, coexists with active, and never selects", async () => {
+    const { rerender } = render(
+      <FileExplorerView roots={[worktree]} fs={fakeFs} activePath="/README.md" viewedPath="/README.md" />,
+    );
+    // Both states on ONE row: active (aria-current) + the "on stage" marker.
+    const marker = await screen.findByLabelText("Shown in the running app");
+    expect(marker).toBeInTheDocument();
+    const row = screen.getByText("README.md").closest(".tnode")!;
+    expect(row.className).toContain("tnode--active");
+    expect(row.className).toContain("tnode--viewed");
+    // Highlight-only: the marker confers no selection.
+    expect(row.className).not.toContain("tnode--selected");
+    // The hint moving is just a marker move — the active row is untouched.
+    rerender(
+      <FileExplorerView roots={[worktree]} fs={fakeFs} activePath="/README.md" viewedPath={null} />,
+    );
+    expect(screen.queryByLabelText("Shown in the running app")).toBeNull();
+    expect(row.className).toContain("tnode--active");
+  });
+
   it("activating a file calls actions.open with the mount-relative path + onActivate/onSelect", async () => {
     const user = userEvent.setup();
     const open = vi.fn();

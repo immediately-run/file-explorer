@@ -19,12 +19,15 @@ const IconTile = memo(function IconTile({
   row,
   selected,
   active,
+  viewed,
   onOpen,
   handlers,
 }: {
   row: BrowseRow;
   selected: boolean;
   active: boolean;
+  /** The stage's viewed-document marker (R3-268) — highlight-only. */
+  viewed: boolean;
   onOpen: (row: BrowseRow) => void;
   handlers: NodeHandlers;
 }) {
@@ -39,12 +42,14 @@ const IconTile = memo(function IconTile({
       role="gridcell"
       aria-selected={selected}
       aria-current={active ? "true" : undefined}
-      aria-label={`${name}, ${fileTypeLabel(name, ctx.isDir)}`}
+      aria-label={`${name}, ${fileTypeLabel(name, ctx.isDir)}${viewed ? ", shown in the running app" : ""}`}
+      title={viewed ? "Shown in the running app" : undefined}
       tabIndex={0}
       className={
         "tile" +
         (selected ? " tile--selected" : "") +
         (active ? " tile--active" : "") +
+        (viewed ? " tile--viewed" : "") +
         (dropTarget ? " tile--droptarget" : "")
       }
       onClick={() => onOpen(row)}
@@ -84,6 +89,7 @@ function IconGrid({
   cwd,
   setCwd,
   activeFile,
+  viewedFile,
   handlers,
 }: {
   store: TreeStore;
@@ -91,6 +97,8 @@ function IconGrid({
   cwd: string | null;
   setCwd: (path: string | null) => void;
   activeFile: string | null;
+  /** The stage's viewed-document hint (R3-268), mount-relative or null. */
+  viewedFile: string | null;
   handlers: NodeHandlers;
 }) {
   const selectedPath = useSelected(store);
@@ -155,6 +163,7 @@ function IconGrid({
               row={row}
               selected={selectedPath === row.ctx.absPath}
               active={!row.ctx.isDir && mountRel === activeFile}
+              viewed={!row.ctx.isDir && mountRel === viewedFile}
               onOpen={onOpen}
               handlers={handlers}
             />
