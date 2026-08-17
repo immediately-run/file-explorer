@@ -45,6 +45,9 @@ const h = vi.hoisted(() => ({
   cancelItemDrag: vi.fn(() => {}),
   readdir: vi.fn((path: string) => Promise.resolve(TREE[path] ?? [])),
   listSettingsApps: vi.fn((): Promise<string[]> => Promise.resolve([])),
+  // R3-269 D5: the host powerbox request. Never resolves by default — the flow is
+  // host-owned; these tests only assert the app ASKS.
+  requestMount: vi.fn((): Promise<unknown> => new Promise(() => {})),
   // The app's RegionId (R3-96): `page.commander` makes the app default to the broad
   // registry lens. Default null (a `panel.files` projection behaves App-first as before).
   region: null as string | null,
@@ -66,6 +69,7 @@ vi.mock("@immediately-run/sdk", () => ({
   // settings:all enumeration — default to none so the base file tree is unaffected.
   listSettingsApps: () => h.listSettingsApps(),
   openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
+  requestMount: () => h.requestMount(),
   useRegion: () => h.region,
 }));
 
@@ -307,6 +311,76 @@ describe("R3-80 — context menu", () => {
     expect(within(menu).getByRole("menuitem", { name: /Open/ })).toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: /New file here/ })).not.toBeInTheDocument();
     expect(within(menu).queryByRole("menuitem", { name: /Delete/ })).not.toBeInTheDocument();
+  });
+});
+
+// --- R3-269 D4/D5/D6 — the explorer as the spaces entry point ----------------
+describe("R3-269 — add-a-space + manage-sharing entry points", () => {
+  it("the header's 'Add a space…' asks the HOST powerbox (requestMount)", async () => {
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+    await screen.findByText("src");
+    await user.click(screen.getByRole("button", { name: "Add a space…" }));
+    expect(h.requestMount).toHaveBeenCalledTimes(1);
+  });
+
+  it("the empty state carries the first-timer sentence + an Add-a-space action", async () => {
+    h.mounts = [];
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+    // D6 copy, R-SPACES-1 vocabulary (space/folder — never mount/filesystem).
+    const copy = await screen.findByText(/A space is a folder that lives in your account/);
+    const state = copy.closest(".state") as HTMLElement;
+    await user.click(within(state).getByRole("button", { name: /Add a space…/ }));
+    expect(h.requestMount).toHaveBeenCalled();
+  });
+
+  it("a space ROOT row's menu offers 'Manage sharing →' opening /spaces at that space", async () => {
+    // getHostOrigin() reads the iframe's `?href=` boot param — simulate the sandbox URL.
+    window.history.replaceState(
+      {},
+      "",
+      "/?href=" + encodeURIComponent("https://immediately.run/edit/github/a/b/main/"),
+    );
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      h.mounts = [{ type: "space", path: "/spaces/s1", id: "space:s1", name: "Shared notes" }];
+      const user = userEvent.setup();
+      render(<FileExplorer />);
+      // The label appears in the scope header AND as the tree's root row — the row
+      // (inside role=tree) is the one carrying the context menu.
+      const tree = await screen.findByRole("tree", { name: "Shared notes" });
+      fireEvent.contextMenu(within(tree).getByText("Shared notes"));
+      const menu = await screen.findByRole("menu");
+      await user.click(within(menu).getByRole("menuitem", { name: /Manage sharing/ }));
+      expect(open).toHaveBeenCalledWith(
+        "https://immediately.run/spaces?space=s1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    } finally {
+      open.mockRestore();
+      window.history.replaceState({}, "", "/");
+    }
+  });
+
+  it("a non-root row inside a space does NOT offer 'Manage sharing →'", async () => {
+    window.history.replaceState(
+      {},
+      "",
+      "/?href=" + encodeURIComponent("https://immediately.run/edit/github/a/b/main/"),
+    );
+    try {
+      h.mounts = [{ type: "space", path: "/spaces/s1", id: "space:s1", name: "Shared notes" }];
+      render(<FileExplorer />);
+      fireEvent.contextMenu(await screen.findByText("note.md"));
+      const menu = await screen.findByRole("menu");
+      expect(
+        within(menu).queryByRole("menuitem", { name: /Manage sharing/ }),
+      ).not.toBeInTheDocument();
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
   });
 });
 

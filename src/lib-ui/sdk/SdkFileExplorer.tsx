@@ -8,8 +8,15 @@
 // The existing FileExplorer test suite renders THIS and keeps the same SDK mocks —
 // the parity proof that the extraction is behavior-preserving.
 import { useCallback, useEffect, useState } from "react";
-import { FolderTree, Eye, EyeOff } from "lucide-react";
-import { useEditorContext, listSettingsApps, openSettingsOf, useMounts, useRegion } from "@immediately-run/sdk";
+import { FolderTree, Eye, EyeOff, Plus, Users } from "lucide-react";
+import {
+  useEditorContext,
+  listSettingsApps,
+  openSettingsOf,
+  requestMount,
+  useMounts,
+  useRegion,
+} from "@immediately-run/sdk";
 import FileExplorerView from "../FileExplorerView";
 import LensSwitcher, { type Lens } from "../LensSwitcher";
 import { useShowAllFilesystems } from "../hooks/useShowAllFilesystems";
@@ -24,6 +31,31 @@ import type { ExplorerActions, MenuItem, RowCtx } from "../types";
 
 // The action bundle + fs are stable for the lifetime of the app.
 const actions: ExplorerActions = makeSdkActions();
+
+// The HOST origin, recovered from the iframe's `?href=` boot param (the sandbox URL
+// carries the host page it renders for). Needed to open host routes (`/spaces`) in a
+// new tab — a relative URL would resolve against the sandbox origin. Null when absent
+// (plain `vite dev`), in which case host-route affordances are hidden, never broken.
+const getHostOrigin = (): string | null => {
+  try {
+    const href = new URLSearchParams(window.location.search).get("href");
+    return href ? new URL(href).origin : null;
+  } catch {
+    return null;
+  }
+};
+
+/** The full-tab space-manager, at a space (R3-269 D4: entry point only — the
+ *  membership/share/create VERBS stay in space-manager, R-SPACES-7). */
+const openManageSharing = (spaceId: string) => {
+  const hostOrigin = getHostOrigin();
+  if (!hostOrigin) return;
+  window.open(
+    `${hostOrigin}/spaces?space=${encodeURIComponent(spaceId)}`,
+    "_blank",
+    "noopener,noreferrer",
+  );
+};
 
 function SdkFileExplorer() {
   // R3-238: settings stores and the affordance that opens them are advanced plumbing,
@@ -78,10 +110,31 @@ function SdkFileExplorer() {
     void openSettingsOf(appKey).catch(() => undefined);
   }, []);
 
-  const extraMenuItems = useCallback(
-    (ctx: RowCtx): MenuItem[] => summarizeMenuItems(ctx, setSummary),
-    [],
-  );
+  // R3-269 D5: "Add a space…" asks the HOST powerbox to enumerate + grant
+  // (R-SPACES-2: the explorer never lists spaces or mints mounts itself). The granted
+  // mount then flows in through `useMounts()` like any other. `cancelled` is a normal
+  // outcome, not an error.
+  const addSpace = useCallback(() => {
+    void requestMount().catch(() => undefined);
+  }, []);
+
+  const extraMenuItems = useCallback((ctx: RowCtx): MenuItem[] => {
+    const items = summarizeMenuItems(ctx, setSummary);
+    // R3-269 D4: the per-space "Manage sharing →" entry point, on the space's ROOT row
+    // only. Opens the full-tab space-manager AT that space — the verbs live there.
+    const spaceId = ctx.mountId.startsWith("space:")
+      ? ctx.mountId.slice("space:".length)
+      : null;
+    if (getHostOrigin() && spaceId && ctx.absPath === ctx.rootPath) {
+      items.push({
+        key: "manage-sharing",
+        label: "Manage sharing →",
+        icon: <Users size={14} aria-hidden="true" />,
+        onSelect: () => openManageSharing(spaceId),
+      });
+    }
+    return items;
+  }, []);
 
   // Apps with per-user settings that aren't mounted yet — click to open
   // (`settings:all`). An already-opened settings mount renders as its own root
@@ -128,16 +181,31 @@ function SdkFileExplorer() {
       </button>
     ) : null;
 
+  // R3-269 D5: the explorer is the add-a-space entry point — a header affordance
+  // that invokes the host powerbox. Always offered (it may be the very control that
+  // produces the first root).
+  const addSpaceButton = (
+    <button
+      type="button"
+      className="panel__action"
+      title="Add a space…"
+      aria-label="Add a space…"
+      onClick={addSpace}
+    >
+      <Plus size={15} aria-hidden="true" />
+    </button>
+  );
+
   // The Session lens toggle leads the header actions, but only when the host
   // delivered a session signal (first-party). A fork never sees it.
-  const headerActions =
-    sessionAvailable || showAllToggle || settingsButtons ? (
-      <>
-        {sessionAvailable && <LensSwitcher value={effectiveLens} onChange={setLens} />}
-        {showAllToggle}
-        {settingsButtons}
-      </>
-    ) : undefined;
+  const headerActions = (
+    <>
+      {sessionAvailable && <LensSwitcher value={effectiveLens} onChange={setLens} />}
+      {addSpaceButton}
+      {showAllToggle}
+      {settingsButtons}
+    </>
+  );
 
   return (
     <>
@@ -149,6 +217,23 @@ function SdkFileExplorer() {
         viewedPath={viewedFile}
         extraMenuItems={extraMenuItems}
         header={{ actions: headerActions }}
+        emptyState={
+          <div className="state">
+            <span className="state__icon">
+              <FolderTree size={20} aria-hidden="true" />
+            </span>
+            <h4>No files to show yet.</h4>
+            {/* R3-269 D6 first-timer sentence, R-SPACES-1 vocabulary. */}
+            <p>
+              A space is a folder that lives in your account. You can share it with
+              others and open it from any app.
+            </p>
+            <button type="button" className="state__action" onClick={addSpace}>
+              <Plus size={14} aria-hidden="true" />
+              Add a space…
+            </button>
+          </div>
+        }
       />
       {summary && <SummaryModal target={summary} onClose={() => setSummary(null)} />}
     </>
