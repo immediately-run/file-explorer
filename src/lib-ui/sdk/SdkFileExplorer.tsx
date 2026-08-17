@@ -7,7 +7,7 @@
 //
 // The existing FileExplorer test suite renders THIS and keeps the same SDK mocks —
 // the parity proof that the extraction is behavior-preserving.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FolderTree, Eye, EyeOff, Plus, Users } from "lucide-react";
 import {
   useEditorContext,
@@ -17,6 +17,7 @@ import {
   useMounts,
   useRegion,
 } from "@immediately-run/sdk";
+import { addListener } from "@immediately-run/sdk/sandboxUtils";
 import FileExplorerView from "../FileExplorerView";
 import LensSwitcher, { type Lens } from "../LensSwitcher";
 import { useShowAllFilesystems } from "../hooks/useShowAllFilesystems";
@@ -72,6 +73,27 @@ function SdkFileExplorer() {
   const viewedFile =
     (editorContext as { viewedFile?: string | null }).viewedFile ?? null;
   const [summary, setSummary] = useState<SummaryTarget | null>(null);
+  // Gesture-gated reveal (R3-268 follow-up): the HOST sends a one-shot
+  // `viewed-reveal` only for navigations that provably rode a real user click
+  // (it samples its own transient activation — this frame cannot fake it) and
+  // only to `editor:read` frames. The view expands ancestors + scrolls the row
+  // into view; focus never moves. Everything else stays highlight-only.
+  const [reveal, setReveal] = useState<{ path: string; nonce: number } | null>(null);
+  const revealNonceRef = useRef(0);
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    try {
+      dispose = addListener("viewed-reveal", (m: { path?: unknown }) => {
+        if (typeof m.path === "string") {
+          revealNonceRef.current += 1;
+          setReveal({ path: m.path, nonce: revealNonceRef.current });
+        }
+      });
+    } catch {
+      /* no host transport — a standalone dev-server render */
+    }
+    return () => dispose?.();
+  }, []);
 
   // The first-party "App | Session" lens (PRINCIPALS §9 B2). `sessionAvailable` is
   // true only when the host delivered a session signal (first-party frame); a
@@ -216,6 +238,7 @@ function SdkFileExplorer() {
         activePath={activeFile}
         viewedPath={viewedFile}
         extraMenuItems={extraMenuItems}
+        reveal={reveal}
         header={{ actions: headerActions }}
         emptyState={
           <div className="state">

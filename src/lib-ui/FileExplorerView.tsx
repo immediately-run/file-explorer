@@ -32,7 +32,7 @@ import {
   Play,
   type LucideIcon,
 } from "lucide-react";
-import { TreeStore, useNode, useActive, useViewed } from "./treeStore";
+import { TreeStore, useNode, useActive, useViewed, useViewedAncestor } from "./treeStore";
 import ContextMenu from "./ContextMenu";
 import LayoutSwitcher from "./LayoutSwitcher";
 import ListView from "./ListView";
@@ -80,6 +80,11 @@ export interface FileExplorerViewProps {
    *  marker visually distinct from the editor-active highlight. Highlight-only:
    *  the explorer never scrolls, selects, or navigates on it. */
   viewedPath?: string | null;
+  /** Gesture-gated reveal (host `viewed-reveal`, one-shot per nonce): expand the
+   *  viewed file's ancestors and scroll its row into view — NEVER focus. Only
+   *  fired by the host for navigations that provably rode a real user click;
+   *  everything else stays highlight-only + ancestor dot. */
+  reveal?: { path: string; nonce: number } | null;
   selectionMode?: "single" | "multi" | "none";
   onSelect?: (root: ExplorerRoot, relPath: string) => void;
   /**
@@ -166,6 +171,11 @@ const TreeNode = memo(function TreeNode({
   // The "on stage" marker (R3-268) — same per-node subscription shape as active.
   const viewedMatch = useViewed(store, repoRel);
   const viewed = !isDir && viewedMatch;
+  // The collapsed-ancestor dot: a closed folder whose subtree contains the
+  // on-stage file shows a dimmed marker, so the viewed highlight is discoverable
+  // without the tree ever moving on its own (the highlight-only contract).
+  const ancestorMatch = useViewedAncestor(store, repoRel);
+  const containsViewed = isDir && !open && ancestorMatch;
   const deletable = writable && !isProtected(repoRel) && !!handlers.onDelete;
   const rowCtx: RowCtx = { absPath: path, isDir, rootPath, mountId, writable };
 
@@ -269,6 +279,16 @@ const TreeNode = memo(function TreeNode({
             role="img"
             aria-label="Shown in the running app"
             title="Shown in the running app"
+          >
+            <Play size={11} aria-hidden="true" />
+          </span>
+        )}
+        {containsViewed && (
+          <span
+            className="tnode__viewed tnode__viewed--ancestor"
+            role="img"
+            aria-label="Contains the file shown in the running app"
+            title="Contains the file shown in the running app"
           >
             <Play size={11} aria-hidden="true" />
           </span>
@@ -430,6 +450,7 @@ function FileExplorerView({
   actions,
   activePath = null,
   viewedPath = null,
+  reveal = null,
   selectionMode = "single",
   onSelect,
   onSelectionChange,
@@ -490,6 +511,29 @@ function FileExplorerView({
   useEffect(() => {
     store.setViewedFile(viewedPath);
   }, [store, viewedPath]);
+
+  // Gesture-gated reveal: one-shot per nonce. Expand the ancestors, then scroll
+  // the row into view once it renders (children load lazily on expand, so poll
+  // briefly and give up quietly). scrollIntoView only — focus NEVER moves.
+  const panelElRef = useRef<HTMLElement | null>(null);
+  const lastRevealNonceRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!reveal) return;
+    if (lastRevealNonceRef.current === reveal.nonce) return;
+    lastRevealNonceRef.current = reveal.nonce;
+    store.revealPath(reveal.path);
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = panelElRef.current?.querySelector(".tnode--viewed");
+      if (el) {
+        el.scrollIntoView({ block: "nearest" });
+        clearInterval(timer);
+      } else if (++tries > 16) {
+        clearInterval(timer); // rows never appeared (path not in this tree) — stay put
+      }
+    }, 150);
+    return () => clearInterval(timer);
+  }, [reveal, store]);
 
   // The multi-select SET, subscribed via the store's STABLE snapshot (identity
   // changes only on a real mutation — see `getSelection`), so this doesn't tear.
@@ -819,7 +863,7 @@ function FileExplorerView({
   const glyph = header?.glyph ?? <FolderTree size={15} aria-hidden="true" />;
 
   return (
-    <section className="panel fx-root" aria-label={title}>
+    <section className="panel fx-root" aria-label={title} ref={panelElRef}>
       <header className="panel__head">
         <span className="panel__glyph">{glyph}</span>
         <span className="panel__title">{title}</span>

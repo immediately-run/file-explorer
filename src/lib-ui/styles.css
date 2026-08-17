@@ -752,3 +752,8 @@
   border-radius: 4px;
   padding: 1px 6px;
 }
+
+/* The collapsed-ancestor variant of the on-stage marker (R3-268 follow-up): a
+   closed folder whose subtree contains the viewed file carries a dimmed dot, so
+   the highlight is discoverable without the tree ever moving on its own. */
+.tnode__viewed--ancestor { opacity: 0.45; }

@@ -136,12 +136,42 @@ export class TreeStore {
   isViewed = (repoRel: string): boolean => this.viewedFile === repoRel;
   /** The stage's viewed-document hint, mount-relative (or null — no hint). */
   getViewedFile = (): string | null => this.viewedFile;
+  /** Is `repoRel` (a DIRECTORY, mount-relative) an ancestor of the viewed
+   *  document? Drives the collapsed-folder "contains the on-stage file" dot —
+   *  a corpus under a chroot subdir stays discoverable while the tree itself is
+   *  untouched (the highlight-only contract). */
+  isViewedAncestor = (repoRel: string): boolean => {
+    if (!this.viewedFile) return false;
+    if (repoRel === "/") return true;
+    return this.viewedFile.startsWith(repoRel + "/");
+  };
 
   // --- mutations (called from handlers / effects, never during render) ---
   toggle = (p: string): void => {
     if (this.expanded.has(p)) this.expanded.delete(p);
     else this.expanded.add(p);
     this.emit();
+  };
+
+  /** Gesture-gated reveal (the host's one-shot `viewed-reveal`): expand every
+   *  ancestor of the mount-relative `viewedPath` under EVERY root. A path that
+   *  doesn't exist under a root never renders, so over-expansion is inert.
+   *  Rendering only — never focuses; the caller owns the (optional) scroll. */
+  revealPath = (viewedPath: string): void => {
+    const segs = viewedPath.split("/").filter(Boolean);
+    segs.pop(); // the file itself — expansion applies to its ancestor dirs
+    let changed = false;
+    for (const root of this.roots) {
+      let p = root;
+      for (const seg of segs) {
+        p = `${p}/${seg}`;
+        if (!this.expanded.has(p)) {
+          this.expanded.add(p);
+          changed = true;
+        }
+      }
+    }
+    if (changed) this.emit();
   };
 
   /** Force a directory open (used when revealing a drop target / a created path). */
@@ -278,6 +308,12 @@ export function useActive(store: TreeStore, repoRel: string): boolean {
  *  two rows whose viewed state flips. */
 export function useViewed(store: TreeStore, repoRel: string): boolean {
   return useSyncExternalStore(store.subscribe, () => store.isViewed(repoRel));
+}
+
+/** Subscribe a DIRECTORY row to whether its subtree contains the viewed document
+ *  (the collapsed-ancestor dot). Same per-row shape as {@link useViewed}. */
+export function useViewedAncestor(store: TreeStore, repoRel: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => store.isViewedAncestor(repoRel));
 }
 
 /**
