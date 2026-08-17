@@ -434,6 +434,21 @@
 .state h4 { font-family: var(--disp); font-weight: 700; font-size: 15px; color: var(--ink); }
 .state p { font-size: 13.5px; line-height: 1.5; max-width: 34ch; }
 .state__err { color: var(--accent-hot); }
+.state__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.state__action:hover { background: var(--hover, rgba(127, 127, 127, 0.08)); }
 
 .cta {
   margin-top: 8px;
