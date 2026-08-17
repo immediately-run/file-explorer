@@ -19,10 +19,28 @@ const TREE: Record<string, DirEntry[]> = {
 };
 
 const h = vi.hoisted(() => ({
+  // Raw host->app message listeners (the mocked sandboxUtils.addListener registry).
+  rawListeners: new Map<string, Set<(m: unknown) => void>>(),
+  emit(type: string, msg: unknown) {
+    for (const fn of h.rawListeners.get(type) ?? []) fn(msg);
+  },
   mounts: [] as Array<{ type: string; path: string; id?: string }>,
   activeFile: null as string | null,
   openInEditor: vi.fn((): Promise<void> => Promise.resolve()),
   readdir: vi.fn((path: string) => Promise.resolve(TREE[path] ?? [])),
+}));
+
+// The subpath module the reveal listener rides. The REAL sandboxUtils cannot load
+// under vitest (tsup extensionless specifiers), and mocking it here also gives the
+// suite a controllable host->app channel: push with h.emit('viewed-reveal', msg).
+vi.mock("@immediately-run/sdk/sandboxUtils", () => ({
+  addListener: (type: string, handler: (m: unknown) => void) => {
+    const set = h.rawListeners.get(type) ?? new Set<(m: unknown) => void>();
+    set.add(handler);
+    h.rawListeners.set(type, set);
+    return () => set.delete(handler);
+  },
+  sendMessage: vi.fn(),
 }));
 
 vi.mock("@immediately-run/sdk", () => ({

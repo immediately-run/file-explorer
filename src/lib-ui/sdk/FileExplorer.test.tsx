@@ -8,7 +8,7 @@
 // - FX-1 (no-remount proxy): a benign worktree re-announce (a new mount object
 //   with the same path) must not remount/reload the tree — asserted via the
 //   `readdir` call count staying flat and expansion being preserved.
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DirEntry } from "../types";
@@ -28,6 +28,11 @@ const TREE: Record<string, DirEntry[]> = {
 
 // Mutable test doubles, shared with the hoisted module mocks below.
 const h = vi.hoisted(() => ({
+  // Raw host->app message listeners (the mocked sandboxUtils.addListener registry).
+  rawListeners: new Map<string, Set<(m: unknown) => void>>(),
+  emit(type: string, msg: unknown) {
+    for (const fn of h.rawListeners.get(type) ?? []) fn(msg);
+  },
   mounts: [] as Array<{ type: string; path: string; id?: string }>,
   // The first-party Session-lens list (R3-95). Default none: a non-first-party frame
   // (a fork) receives `[]`, so the "App | Session" toggle never renders.
@@ -35,6 +40,8 @@ const h = vi.hoisted(() => ({
   // The editor-context active file (FX-4b). Mutable so a test can move it and
   // re-render, mirroring a host push.
   activeFile: null as string | null,
+  // The stage's viewed-document hint (R3-268), pushed on the same channel.
+  viewedFile: null as string | null,
   // The arg is recorded by the spy via the factory call below, so the impl needs
   // no param; assertions use `toHaveBeenCalledWith`.
   openInEditor: vi.fn((): Promise<void> => Promise.resolve()),
@@ -53,10 +60,28 @@ const h = vi.hoisted(() => ({
   region: null as string | null,
 }));
 
+// The subpath module the reveal listener rides. The REAL sandboxUtils cannot load
+// under vitest (tsup extensionless specifiers), and mocking it here also gives the
+// suite a controllable host->app channel: push with h.emit('viewed-reveal', msg).
+vi.mock("@immediately-run/sdk/sandboxUtils", () => ({
+  addListener: (type: string, handler: (m: unknown) => void) => {
+    const set = h.rawListeners.get(type) ?? new Set<(m: unknown) => void>();
+    set.add(handler);
+    h.rawListeners.set(type, set);
+    return () => set.delete(handler);
+  },
+  sendMessage: vi.fn(),
+}));
+
 vi.mock("@immediately-run/sdk", () => ({
   useMounts: () => h.mounts,
   useSessionMounts: () => h.sessionMounts,
-  useEditorContext: () => ({ dirtyPaths: [], openFiles: [], activeFile: h.activeFile }),
+  useEditorContext: () => ({
+    dirtyPaths: [],
+    openFiles: [],
+    activeFile: h.activeFile,
+    viewedFile: h.viewedFile,
+  }),
   openInEditor: (path: string) => h.openInEditor(path),
   createFile: vi.fn(() => Promise.resolve()),
   createFolder: vi.fn(() => Promise.resolve()),
@@ -90,6 +115,8 @@ beforeEach(() => {
   h.mounts = [worktree()];
   h.sessionMounts = [];
   h.activeFile = null;
+  h.viewedFile = null;
+  h.rawListeners.clear();
   h.region = null;
   h.openInEditor.mockClear();
   h.readdir.mockClear();
@@ -629,5 +656,56 @@ describe("R3-239 — the header's size must not follow the mount-label length", 
     render(<FileExplorer />);
     await screen.findByTitle("Open cp settings");
     expect(document.querySelector(".panel__actions")).toHaveClass("panel__actions--extra");
+  });
+});
+
+// --- R3-268 follow-up: gesture-gated reveal + collapsed-ancestor dot ----------
+describe("viewed-document reveal + ancestor dot", () => {
+  it("a collapsed folder containing the viewed file carries the dimmed ancestor dot", async () => {
+    h.viewedFile = "/src/index.ts";
+    render(<FileExplorer />);
+    await screen.findByText("src"); // root listed; `src` starts COLLAPSED
+    // The dot names its meaning; the folder itself never opens on its own.
+    expect(
+      await screen.findByRole("img", { name: "Contains the file shown in the running app" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("index.ts")).not.toBeInTheDocument();
+  });
+
+  it("a host `viewed-reveal` expands the ancestors and scrolls the row into view — without focus", async () => {
+    const scrolls: Element[] = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function () {
+      scrolls.push(this);
+    };
+    try {
+      h.viewedFile = "/src/index.ts";
+      render(<FileExplorer />);
+      await screen.findByText("src");
+      const before = document.activeElement;
+
+      act(() => h.emit("viewed-reveal", { type: "viewed-reveal", path: "/src/index.ts" }));
+
+      // Ancestors expanded → the row renders, carrying the on-stage marker…
+      const row = await screen.findByText("index.ts");
+      expect(row).toBeInTheDocument();
+      expect(
+        await screen.findByRole("img", { name: "Shown in the running app" }),
+      ).toBeInTheDocument();
+      // …the row is scrolled into view (bounded poll inside the view)…
+      await waitFor(() => expect(scrolls.length).toBeGreaterThan(0));
+      // …and focus NEVER moved (the activation-free half that still holds).
+      expect(document.activeElement).toBe(before);
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  it("without a reveal message the tree never moves on its own (highlight-only)", async () => {
+    h.viewedFile = "/src/index.ts";
+    render(<FileExplorer />);
+    await screen.findByText("src");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("index.ts")).not.toBeInTheDocument(); // still collapsed
   });
 });
