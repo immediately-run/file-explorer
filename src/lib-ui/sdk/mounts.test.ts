@@ -34,14 +34,45 @@ describe("mount metadata (R3-79)", () => {
   });
 
   it("a READ-ONLY worktree is not writable — honor mode, never show-then-EROFS", () => {
-    // `panel.files` gets the edited repo as a `ro` port (`exposesWorkingTree: "ro"`);
-    // a `ro` source clamps even an `rw` binding. Delete/rename/upload must be hidden.
+    // Legacy host (no `sourceMode` on the descriptor): the port mode is all there is,
+    // so it still governs. Never a widening against a host that can't tell us more.
     expect(isWritableMount(m({ type: "worktree", path: "/mnt/x", mode: "ro" }))).toBe(false);
     expect(isWritableMount(m({ type: "worktree", path: "/mnt/x", mode: "rw" }))).toBe(true);
-    // A ro worktree renders read-only scopes, not the assumed rw.
     expect(mountScopes(m({ type: "worktree", path: "/mnt/x", mode: "ro" }))).toEqual([
       { subtree: "/", mode: "ro" },
     ]);
+  });
+
+  // The question the explorer is asking is "can the USER change this file in their
+  // editing session", not "may this frame write through this port". For `panel.files`
+  // those answers differ permanently: the host pins the port to `ro`
+  // (`exposesWorkingTree: "ro"`) because the explorer mutates through the kernel-gated
+  // `editor:write` actions rather than a raw port — so reading the port mode said
+  // "read-only" in every workbench session and hid every write affordance the user was
+  // entitled to (FILE_EXPLORER_SPEC §2).
+  it("a `ro` PORT over a writable source is still the user's to edit", () => {
+    const panelFiles = m({ type: "worktree", path: "/mnt/x", mode: "ro", sourceMode: "rw" } as never);
+    expect(isWritableMount(panelFiles)).toBe(true);
+    expect(mountScopes(panelFiles)).toEqual([{ subtree: "/", mode: "rw" }]);
+  });
+
+  it("a read-only SOURCE still hides the affordances (the #20 case is preserved)", () => {
+    // Local provider / ro-shared space / zip: the host action would refuse the write,
+    // so offering it would be shown-then-refused — exactly what #20 removed.
+    const roSource = m({ type: "worktree", path: "/mnt/x", mode: "ro", sourceMode: "ro" } as never);
+    expect(isWritableMount(roSource)).toBe(false);
+    expect(mountScopes(roSource)).toEqual([{ subtree: "/", mode: "ro" }]);
+    // The ceiling wins even if a port somehow claimed more than its source allows.
+    expect(
+      isWritableMount(m({ type: "worktree", path: "/mnt/x", mode: "rw", sourceMode: "ro" } as never)),
+    ).toBe(false);
+  });
+
+  it("the source ceiling never promotes a NON-worktree mount", () => {
+    // v1 still ships non-worktree mounts read-only; `sourceMode` is not a back door.
+    expect(
+      isWritableMount(m({ type: "space", path: "/s/1", mode: "rw", sourceMode: "rw" } as never)),
+    ).toBe(false);
   });
 
   it("eject (R-SPACES-3): spaces eject, worktree + settings never", () => {
