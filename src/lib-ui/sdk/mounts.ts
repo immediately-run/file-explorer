@@ -52,20 +52,40 @@ export const mountLabel = (m: SandboxMount): string => {
 export const mountMode = (m: SandboxMount): "ro" | "rw" => m.mode ?? "ro";
 
 /**
+ * The mount's SOURCE writability — can the user change this file in their editing
+ * session at all, as opposed to "may this frame write through this particular port".
+ *
+ * The two are not the same and the difference is the whole point here. `m.mode` is the
+ * port's authority, and for `panel.files` the host sets it to `ro` **unconditionally**
+ * (`exposesWorkingTree: "ro"`): the explorer is deliberately port-less for writes, and
+ * mutates through the kernel-gated `editor:write` host actions instead — which the
+ * host gates on the SOURCE mode, not on our port. So `m.mode` answers a question the
+ * explorer is not asking, and answers it `ro` every single time.
+ *
+ * Read defensively: an older host publishes no `sourceMode`, and there we fall back to
+ * the port mode — the pre-existing behavior, never a widening.
+ */
+const sourceModeOf = (m: SandboxMount): "ro" | "rw" | undefined => {
+  const v = (m as { sourceMode?: unknown }).sourceMode;
+  return v === "ro" || v === "rw" ? v : undefined;
+};
+
+/**
  * Whether the explorer should offer WRITE affordances on this mount. v1: only the
  * worktree is writable (mutation rides the first-party `editor:write` host actions);
  * non-worktree mounts are read-only until per-mount write (UI_AS_APPS_SPEC §3.5)
  * lands — the affordances are HIDDEN, never shown-then-`EROFS`.
  *
- * BUT a worktree can itself be exposed READ-ONLY: `panel.files` gets the edited repo
- * as a `ro` port (`exposesWorkingTree: "ro"`), and a `ro` source (local/space/zip)
- * clamps even an `rw`-exposing binding to `ro` (SandboxListener's `minMode`). Honor
- * the mount's own `mode` so a `ro` worktree hides Delete/rename/upload rather than
- * offering them and then failing `EROFS`. Only an EXPLICIT `ro` downgrades — an
- * unspecified mode keeps the v1 "the worktree is writable" default.
+ * A worktree whose SOURCE is read-only (local provider / ro space / zip) still hides
+ * them: writing there would be refused by the host action, and a shown-then-refused
+ * affordance is the thing #20 removed. What changed is only WHICH mode is consulted —
+ * the source ceiling rather than our own clamped port — because consulting the port
+ * made the answer permanently `false` and left the explorer unable to offer a write
+ * the user was perfectly entitled to make (FILE_EXPLORER_SPEC §2: "the worktree is
+ * writable via the first-party `editor:write` host actions").
  */
 export const isWritableMount = (m: SandboxMount): boolean =>
-  isWorktree(m) && m.mode !== "ro";
+  isWorktree(m) && (sourceModeOf(m) ?? m.mode) !== "ro";
 
 /** A short subtree label for the single-chip layouts ("/" for a whole-mount grant). */
 export const subtreeLabel = (m: SandboxMount): string => {
