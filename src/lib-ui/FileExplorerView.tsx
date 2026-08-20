@@ -132,8 +132,13 @@ export interface FileExplorerViewProps {
   extraMenuItems?: (ctx: RowCtx) => MenuItem[];
   /** Render an accessory next to a row's delete button. */
   renderRowAccessory?: (ctx: RowCtx) => ReactNode;
-  /** Panel header chrome. */
-  header?: { title?: string; glyph?: ReactNode; actions?: ReactNode };
+  /** Panel header chrome. `actions` is the one-row cluster beside the title; it holds
+   *  controls whose count is FIXED, because a single row can only be shared out so far.
+   *  `tray` is a second row below the header for controls whose count grows with DATA
+   *  (one per app with settings, say) — an unbounded N cannot be squeezed into a fixed
+   *  row, so it gets its own scrollable strip instead of shrinking its siblings to
+   *  slivers. */
+  header?: { title?: string; glyph?: ReactNode; actions?: ReactNode; tray?: ReactNode };
   /** Replaces the built-in "no files" empty state. */
   emptyState?: ReactNode;
 }
@@ -962,6 +967,14 @@ function FileExplorerView({
           </div>
         )}
       </header>
+
+      {/* The overflow row. Controls whose COUNT is data-driven live here rather than in
+          the header cluster above: three "settings · <app>" pills in a 354px panel each
+          shrank to 17px — narrower than the 14px icon they contain, which then spilled
+          out over its neighbour and off the panel edge. R3-239 made ONE such control
+          shrink-and-truncate gracefully; N of them is a different problem, and the fix
+          for it is a row of their own. Children never shrink; the strip scrolls. */}
+      {header?.tray && <div className="panel__tray">{header.tray}</div>}
 
       {error && (
         <div className="panel__error" role="alert" onClick={() => setError(null)}>

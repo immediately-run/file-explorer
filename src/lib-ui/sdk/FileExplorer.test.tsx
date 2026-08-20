@@ -662,6 +662,48 @@ describe("R3-239 — the header's size must not follow the mount-label length", 
     await screen.findByTitle("Open cp settings");
     expect(document.querySelector(".panel__actions")).toHaveClass("panel__actions--extra");
   });
+
+  // The header row is a FIXED budget; there is one settings pill per app with settings,
+  // so their count is data. Sharing the row out among them is what shrank each pill to
+  // 17px — narrower than the 14px icon in it, which then spilled over its neighbour and
+  // off the panel edge. jsdom has no layout, so the assertion is the structural fact
+  // that prevents it: the pills are not in the fixed row at all.
+  it("puts the settings pills in the tray, not in the fixed header row", async () => {
+    h.mounts = [worktree()];
+    h.listSettingsApps.mockResolvedValue(["one", "two", "three"]);
+    render(<FileExplorer />);
+    await screen.findByTitle("Open one settings");
+
+    const tray = document.querySelector(".panel__tray");
+    expect(tray).not.toBeNull();
+    expect(tray!.querySelectorAll(".settings-app")).toHaveLength(3);
+    expect(document.querySelector(".panel__actions")!.querySelectorAll(".settings-app")).toHaveLength(0);
+    // The controls with a fixed count stay in the header row, where they belong.
+    expect(
+      document.querySelector(".panel__actions")!.querySelector('[aria-label="Add a space…"]'),
+    ).not.toBeNull();
+  });
+
+  it("grows no tray when there is nothing to put in it", async () => {
+    h.mounts = [worktree()];
+    h.listSettingsApps.mockResolvedValue([]);
+    render(<FileExplorer />);
+    await screen.findByText("src");
+    expect(document.querySelector(".panel__tray")).toBeNull();
+  });
+
+  it("drops the tray again when the settings apps are hidden", async () => {
+    const user = userEvent.setup();
+    h.mounts = [worktree()];
+    h.listSettingsApps.mockResolvedValue(["cp"]);
+    render(<FileExplorer />);
+    await screen.findByTitle("Open cp settings");
+    expect(document.querySelector(".panel__tray")).not.toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Hide advanced filesystems" }));
+
+    expect(document.querySelector(".panel__tray")).toBeNull();
+  });
 });
 
 // --- R3-268 follow-up: gesture-gated reveal + collapsed-ancestor dot ----------
