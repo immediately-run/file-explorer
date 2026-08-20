@@ -148,6 +148,9 @@
   white-space: nowrap;
   cursor: pointer;
 }
+/* Whatever squeezes it, the button clips its own content rather than letting the
+   fixed-size icon spill over a neighbour (the failure this row was built to end). */
+.settings-app { overflow: hidden; }
 .settings-app:hover { color: var(--ink); border-color: var(--accent-pink); }
 .settings-app:focus-visible { outline: none; box-shadow: var(--glow); }
 /* The icon is chrome (fixed); the label is data (truncates). */
@@ -164,6 +167,39 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+/* The header's overflow row (`header.tray`). Home for controls whose COUNT is driven by
+   data rather than by design — today the "settings · <app>" pills, one per app with
+   settings. They used to sit in `.panel__actions`, where a fixed row was shared out
+   among an unbounded N: at 354px each pill shrank to 17px, narrower than the 14px icon
+   inside it, so the icon escaped its own box and overlapped its neighbour and the panel
+   edge. Here nothing shrinks (`flex: 0 0 auto` below) and the strip scrolls instead —
+   the count can grow without a layout that degrades. */
+.panel__tray {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+  /* Scroll, never squash: the whole point of the row. `overscroll-behavior` keeps a
+     swipe that runs out of strip from turning into a page/carousel gesture. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.panel__tray::-webkit-scrollbar { display: none; }
+.panel__tray > * { flex: 0 0 auto; }
+/* The tray has a full row to itself, so the pills carry their labels even in a narrow
+   panel — the icon-only form of the header row was unreadable on a phone (identical
+   glyphs, and `title` needs a hover no touch device has). */
+.panel__tray .settings-app__label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Inline "new file/folder" path input. */

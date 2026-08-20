@@ -225,9 +225,12 @@ function SdkFileExplorer() {
       {sessionAvailable && <LensSwitcher value={effectiveLens} onChange={setLens} />}
       {addSpaceButton}
       {showAllToggle}
-      {settingsButtons}
     </>
   );
+  // NOT in `headerActions`: there is one of these per app with settings, so the count
+  // grows with the session. Sharing a fixed row out among an unbounded N is what
+  // squashed them into overlapping slivers on a phone; the tray is a row of their own.
+  const headerTray = settingsButtons;
 
   return (
     <>
@@ -239,7 +242,7 @@ function SdkFileExplorer() {
         viewedPath={viewedFile}
         extraMenuItems={extraMenuItems}
         reveal={reveal}
-        header={{ actions: headerActions }}
+        header={{ actions: headerActions, tray: headerTray }}
         emptyState={
           <div className="state">
             <span className="state__icon">
