@@ -145,6 +145,15 @@ export class TreeStore {
     if (repoRel === "/") return true;
     return this.viewedFile.startsWith(repoRel + "/");
   };
+  /** Is `repoRel` (a DIRECTORY, mount-relative) an ancestor of the editor's
+   *  active file? The counterpart of {@link isViewedAncestor} for the FX-4b
+   *  signal: once the user collapses the folder holding the edited file, the
+   *  marker must not simply vanish. */
+  isActiveAncestor = (repoRel: string): boolean => {
+    if (!this.activeFile) return false;
+    if (repoRel === "/") return true;
+    return this.activeFile.startsWith(repoRel + "/");
+  };
 
   // --- mutations (called from handlers / effects, never during render) ---
   toggle = (p: string): void => {
@@ -153,12 +162,13 @@ export class TreeStore {
     this.emit();
   };
 
-  /** Gesture-gated reveal (the host's one-shot `viewed-reveal`): expand every
-   *  ancestor of the mount-relative `viewedPath` under EVERY root. A path that
+  /** Expand every ancestor of the mount-relative `path` under EVERY root. Used
+   *  by the gesture-gated stage reveal (the host's one-shot `viewed-reveal`) and
+   *  by the editor-active reveal. A path that
    *  doesn't exist under a root never renders, so over-expansion is inert.
    *  Rendering only — never focuses; the caller owns the (optional) scroll. */
-  revealPath = (viewedPath: string): void => {
-    const segs = viewedPath.split("/").filter(Boolean);
+  revealPath = (path: string): void => {
+    const segs = path.split("/").filter(Boolean);
     segs.pop(); // the file itself — expansion applies to its ancestor dirs
     let changed = false;
     for (const root of this.roots) {
@@ -314,6 +324,12 @@ export function useViewed(store: TreeStore, repoRel: string): boolean {
  *  (the collapsed-ancestor dot). Same per-row shape as {@link useViewed}. */
 export function useViewedAncestor(store: TreeStore, repoRel: string): boolean {
   return useSyncExternalStore(store.subscribe, () => store.isViewedAncestor(repoRel));
+}
+
+/** Subscribe a DIRECTORY row to whether its subtree contains the editor's active
+ *  file (the collapsed-ancestor dot). Same per-row shape as {@link useActive}. */
+export function useActiveAncestor(store: TreeStore, repoRel: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => store.isActiveAncestor(repoRel));
 }
 
 /**

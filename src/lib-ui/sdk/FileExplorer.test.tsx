@@ -126,13 +126,18 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-/** Render, wait for the root to load, expand `src`, wait for its children. */
+/** Render, wait for the root to load, expand `src`, wait for its children.
+ *  When `activeFile` points into `src`, the editor-active reveal has already
+ *  opened it — clicking again would CLOSE it, so only click when still closed. */
 async function renderWithSrcExpanded() {
   const user = userEvent.setup();
   const utils = render(<FileExplorer />);
   // Root is open by default → top-level entries appear.
   await screen.findByText("src");
-  await user.click(screen.getByText("src"));
+  const src = screen.getByRole("treeitem", { name: "src" });
+  if (src.getAttribute("aria-expanded") !== "true") {
+    await user.click(screen.getByText("src"));
+  }
   // Subdirectory children appear once readdir resolves.
   await screen.findByText("index.ts");
   return { user, ...utils };
@@ -707,5 +712,95 @@ describe("viewed-document reveal + ancestor dot", () => {
     await screen.findByText("src");
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText("index.ts")).not.toBeInTheDocument(); // still collapsed
+  });
+});
+
+// --- The editor-active counterpart: reveal + glyph + ancestor dot -------------
+// The bug this covers: switching a `/present/...` session to edit mode seeds the
+// editor with the app's ENTRYPOINT, which lives under a collapsed folder — so the
+// tree showed nothing at all about the file being edited.
+describe("editor-active reveal + marker", () => {
+  it("the editor's active file is revealed: ancestors expand and the row scrolls into view", async () => {
+    const scrolls: Element[] = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function () {
+      scrolls.push(this);
+    };
+    try {
+      h.activeFile = "/src/index.ts";
+      render(<FileExplorer />);
+      await screen.findByText("src");
+      const before = document.activeElement;
+
+      // No gesture, no message: the host's editor-context push is enough.
+      expect(await screen.findByText("index.ts")).toBeInTheDocument();
+      expect(screen.getByRole("treeitem", { name: "src" })).toHaveAttribute(
+        "aria-expanded",
+        "true",
+      );
+      await waitFor(() => expect(scrolls.length).toBeGreaterThan(0));
+      // Reveal is scroll-only — focus never moves.
+      expect(document.activeElement).toBe(before);
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  it("the revealed row carries the 'Open in the editor' glyph, and siblings do not", async () => {
+    h.activeFile = "/src/index.ts";
+    render(<FileExplorer />);
+    await screen.findByText("util.ts"); // the whole open directory rendered
+    const marks = screen.getAllByRole("img", { name: "Open in the editor" });
+    expect(marks).toHaveLength(1);
+    expect(marks[0].closest("div.tnode")).toHaveClass("tnode--active");
+    expect(marks[0].closest("div.tnode")).toContainElement(screen.getByText("index.ts"));
+  });
+
+  it("collapsing the folder leaves the dimmed ancestor dot — and never re-opens it", async () => {
+    h.activeFile = "/src/index.ts";
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+    await screen.findByText("index.ts"); // revealed
+
+    await user.click(screen.getByText("src")); // the user closes it again
+
+    expect(screen.queryByText("index.ts")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Contains the file open in the editor" }),
+    ).toBeInTheDocument();
+    // Expand-only: a folder the user closed stays closed.
+    await new Promise((r) => setTimeout(r, 400));
+    expect(screen.queryByText("index.ts")).not.toBeInTheDocument();
+  });
+
+  it("the mounts arriving AFTER the active file still reveal it (the load race)", async () => {
+    // The real ordering on a cold edit-mode boot: the editor-context push can beat
+    // the mount list, and a reveal against an empty root set expands nothing.
+    h.mounts = [];
+    h.activeFile = "/src/index.ts";
+    const { rerender } = render(<FileExplorer />);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("src")).not.toBeInTheDocument(); // no roots yet
+
+    h.mounts = [worktree()];
+    rerender(<FileExplorer />);
+
+    expect(await screen.findByText("index.ts")).toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: "src" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("no active file → no marker and no reveal", async () => {
+    h.activeFile = null;
+    render(<FileExplorer />);
+    await screen.findByText("src");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByText("index.ts")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Open in the editor" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("img", { name: "Contains the file open in the editor" }),
+    ).not.toBeInTheDocument();
   });
 });
