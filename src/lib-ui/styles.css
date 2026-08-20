@@ -392,6 +392,23 @@
    file can be selected without being the editor's active file, and vice versa. */
 .tnode--active .tnode__name { color: var(--accent-violet); }
 
+/* ...and its glyph. A name-color change alone is easy to miss on a long tree —
+   and invisible when the folder holding the file is closed — so the edited file
+   also carries a small pencil after the name, the editor-side counterpart of the
+   on-stage play glyph below. Same subtlety rules: no background sweep, nothing
+   that reads as selection or focus. */
+.tnode__active {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  color: var(--accent-violet, #8b5cf6);
+  opacity: 0.85;
+  flex: 0 0 auto;
+}
+/* The collapsed-ancestor variant: a closed folder whose subtree holds the edited
+   file carries the same glyph, dimmed. */
+.tnode__active--ancestor { opacity: 0.45; }
+
 /* R3-268 — the stage's "on stage" marker: a small play glyph after the name,
    visually distinct from the editor-active (violet name) highlight. Deliberately
    subtle and highlight-only: no background sweep, nothing that reads as

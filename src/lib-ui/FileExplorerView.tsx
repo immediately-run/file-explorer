@@ -32,7 +32,14 @@ import {
   Play,
   type LucideIcon,
 } from "lucide-react";
-import { TreeStore, useNode, useActive, useViewed, useViewedAncestor } from "./treeStore";
+import {
+  TreeStore,
+  useNode,
+  useActive,
+  useActiveAncestor,
+  useViewed,
+  useViewedAncestor,
+} from "./treeStore";
 import ContextMenu from "./ContextMenu";
 import LayoutSwitcher from "./LayoutSwitcher";
 import ListView from "./ListView";
@@ -168,6 +175,11 @@ const TreeNode = memo(function TreeNode({
   // an active-path change re-renders only the affected rows (FX-4b).
   const activeMatch = useActive(store, repoRel);
   const active = !isDir && activeMatch;
+  // The collapsed-ancestor dot for the EDITOR's file, mirroring the on-stage one
+  // below: a closed folder holding the edited file keeps saying so, so collapsing
+  // `src/` doesn't make the answer to "what am I editing?" disappear entirely.
+  const activeAncestorMatch = useActiveAncestor(store, repoRel);
+  const containsActive = isDir && !open && activeAncestorMatch;
   // The "on stage" marker (R3-268) — same per-node subscription shape as active.
   const viewedMatch = useViewed(store, repoRel);
   const viewed = !isDir && viewedMatch;
@@ -273,6 +285,26 @@ const TreeNode = memo(function TreeNode({
           <Icon size={15} aria-hidden="true" />
         </span>
         <span className="tnode__name">{name}</span>
+        {active && (
+          <span
+            className="tnode__active"
+            role="img"
+            aria-label="Open in the editor"
+            title="Open in the editor"
+          >
+            <Pencil size={11} aria-hidden="true" />
+          </span>
+        )}
+        {containsActive && (
+          <span
+            className="tnode__active tnode__active--ancestor"
+            role="img"
+            aria-label="Contains the file open in the editor"
+            title="Contains the file open in the editor"
+          >
+            <Pencil size={11} aria-hidden="true" />
+          </span>
+        )}
         {viewed && (
           <span
             className="tnode__viewed"
@@ -534,6 +566,37 @@ function FileExplorerView({
     }, 150);
     return () => clearInterval(timer);
   }, [reveal, store]);
+
+  // Reveal the EDITOR's active file (FX-4b). Distinct from the stage hint above in
+  // both trust and intent: `activeFile` rides the elevated `editor-context` push
+  // from the host, and it only ever changes because a user opened that file (or
+  // because the initial route seeded the editor) — so following it is not the
+  // untrusted, activation-free highlight the R3-268 contract governs. Without this
+  // the very first thing an edit-mode session shows is an entrypoint deep under a
+  // COLLAPSED folder, with nothing in the tree saying which file that is.
+  // Expand-only (a folder the user closed is never re-opened) + `scrollIntoView`;
+  // focus never moves. Children load lazily on expand, so poll briefly for the row
+  // and give up quietly when the path isn't in this tree.
+  // `rootKey` is in the deps because the two inputs RACE: the editor's active file
+  // routinely lands before the mounts do, and `revealPath` can only expand under
+  // roots the store already knows — a reveal against an empty root set is silently
+  // inert, and `activePath` alone would never fire again to retry it.
+  const rootKey = useMemo(() => ordered.map((m) => m.path).join("\u0000"), [ordered]);
+  useEffect(() => {
+    if (!activePath) return;
+    store.revealPath(activePath);
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = panelElRef.current?.querySelector(".tnode--active");
+      if (el) {
+        el.scrollIntoView({ block: "nearest" });
+        clearInterval(timer);
+      } else if (++tries > 16) {
+        clearInterval(timer); // rows never appeared (path not in this tree) — stay put
+      }
+    }, 150);
+    return () => clearInterval(timer);
+  }, [activePath, rootKey, store]);
 
   // The multi-select SET, subscribed via the store's STABLE snapshot (identity
   // changes only on a real mutation — see `getSelection`), so this doesn't tear.
