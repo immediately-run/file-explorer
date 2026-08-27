@@ -33,6 +33,7 @@ export {
   mountSpaceId,
   isEjectable,
   isWritableMount,
+  grantedModeAt,
   mountScopes,
   subtreeLabel,
   orderMounts,
@@ -44,6 +45,17 @@ export {
   WRITE_ERR,
 } from "./explorer";
 export type { MountKind, MountScope, Crumb, MovePayload } from "./explorer";
+
+// R3-267: the `opensWith` decision — pure, so any file manager built on this library
+// can offer a marked folder without re-deriving the rules.
+export {
+  CONTENT_MARKER_FILE,
+  openWithLabel,
+  opensWithOffer,
+  parseOpensWith,
+  withdrawsOffer,
+} from "./opensWith";
+export type { OpensWithMarker, OpensWithOffer, OpensWithPolicy } from "./opensWith";
 
 export { extOf, fileTypeLabel, compareEntries } from "./entryMeta";
 export type { SortKey, SortableEntry } from "./entryMeta";

@@ -8,7 +8,7 @@
 // The existing FileExplorer test suite renders THIS and keeps the same SDK mocks —
 // the parity proof that the extraction is behavior-preserving.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FolderTree, Eye, EyeOff, Plus, Users } from "lucide-react";
+import { FolderTree, Eye, EyeOff, Plus, Users, BookOpen } from "lucide-react";
 import {
   useEditorContext,
   listSettingsApps,
@@ -27,6 +27,8 @@ import { useSessionRoots } from "./useSessionRoots";
 import { sdkFsSource } from "./mountFs";
 import { makeSdkActions } from "./actions";
 import { summarizeMenuItems } from "./summarize";
+import { useOpensWith } from "./useOpensWith";
+import { openWith } from "./openWith";
 import SummaryModal, { type SummaryTarget } from "./SummaryModal";
 import type { ExplorerActions, MenuItem, RowCtx } from "../types";
 
@@ -140,8 +142,42 @@ function SdkFileExplorer() {
     void requestMount().catch(() => undefined);
   }, []);
 
+  // R3-267: the `opensWith` caller. The wrapped fs probes each listed directory for
+  // its content marker, so a folder that declares what opens it can be offered one.
+  const { fs: opensWithFs, offerFor, withdraw } = useOpensWith(sdkFsSource);
+  const rootByPath = useCallback(
+    (absPath: string) => shownRoots.find((r) => absPath === r.path || absPath.startsWith(`${r.path}/`)) ?? null,
+    [shownRoots],
+  );
+  const runOpenWith = useCallback(
+    (absPath: string) => {
+      const root = rootByPath(absPath);
+      const offer = offerFor(absPath);
+      if (!root || !offer) return;
+      // Fire-and-forget: the host draws the viewer. Every refusal is handled inside
+      // `openWith` — `cancelled` is the ordinary close, and a contract-level refusal
+      // withdraws the affordance rather than putting a protocol code on screen.
+      void openWith(root, absPath, offer).then((outcome) => {
+        if (outcome.status === "withdraw") withdraw(outcome.task);
+      });
+    },
+    [rootByPath, offerFor, withdraw],
+  );
+
   const extraMenuItems = useCallback((ctx: RowCtx): MenuItem[] => {
     const items = summarizeMenuItems(ctx, setSummary);
+    // The affordance is on the ITEM, offered by the marker's own `kind` — no task name
+    // reaches this code, so a folder declaring a later contract works with no change
+    // here (only a manifest entry, which the host enforces anyway).
+    const offer = ctx.isDir ? offerFor(ctx.absPath) : null;
+    if (offer) {
+      items.unshift({
+        key: "open-with",
+        label: offer.label,
+        icon: <BookOpen size={14} aria-hidden="true" />,
+        onSelect: () => runOpenWith(ctx.absPath),
+      });
+    }
     // R3-269 D4: the per-space "Manage sharing →" entry point, on the space's ROOT row
     // only. Opens the full-tab space-manager AT that space — the verbs live there.
     const spaceId = ctx.mountId.startsWith("space:")
@@ -156,7 +192,7 @@ function SdkFileExplorer() {
       });
     }
     return items;
-  }, []);
+  }, [offerFor, runOpenWith]);
 
   // Apps with per-user settings that aren't mounted yet — click to open
   // (`settings:all`). An already-opened settings mount renders as its own root
@@ -236,7 +272,7 @@ function SdkFileExplorer() {
     <>
       <FileExplorerView
         roots={shownRoots}
-        fs={sdkFsSource}
+        fs={opensWithFs}
         actions={actions}
         activePath={activeFile}
         viewedPath={viewedFile}
