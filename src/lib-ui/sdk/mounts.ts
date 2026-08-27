@@ -143,4 +143,10 @@ export const toExplorerRoot = (m: SandboxMount): ExplorerRoot => ({
   scopes: mountScopes(m),
   ejectable: isEjectable(m),
   spaceId: mountSpaceId(m) ?? undefined,
+  // R3-267: the RAW granted rule-set, unclamped — the authority a DELEGATION is
+  // checked against, as opposed to `scopes`, which is the display view and reports
+  // `ro` for every non-worktree scope because the explorer's own writes ride the
+  // host actions. An older host reports no `rules`; a whole-mount grant at the
+  // announced mode is then the honest reading, and `ro` when even that is absent.
+  grants: m.rules?.length ? m.rules.map((r) => ({ subtree: r.subtree, mode: r.mode })) : [{ subtree: "/", mode: mountMode(m) }],
 });

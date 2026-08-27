@@ -59,6 +59,38 @@ export const isEjectable = (r: ExplorerRoot): boolean => !!r.ejectable;
  */
 export const isWritableMount = (r: ExplorerRoot): boolean => r.writable;
 
+/** A mount-relative path in one shape: leading slash, no trailing slash. */
+const normalizeRel = (p: string): string => {
+  const trimmed = (p || "/").replace(/\/+$/, "");
+  if (trimmed === "") return "/";
+  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+};
+
+/**
+ * The mode the app actually HOLDS at `relPath` in this root — longest matching
+ * `grants` prefix wins, exactly as the host resolves a delegation against its rule
+ * set. `ro` when nothing is known, so a missing rule-set can only ever under-ask.
+ *
+ * This is the mode to DELEGATE at (R3-267 / R3-266: dispatch changes the packaging,
+ * not the authority — the mount decides whether the opened viewer can edit). It is
+ * NOT {@link isWritableMount}, which answers a different question: whether the
+ * explorer itself offers create/rename/delete here.
+ */
+export const grantedModeAt = (r: ExplorerRoot, relPath: string): "ro" | "rw" => {
+  const target = normalizeRel(relPath);
+  let best = -1;
+  let mode: "ro" | "rw" = "ro";
+  for (const rule of r.grants ?? []) {
+    const subtree = normalizeRel(rule.subtree);
+    const covers = subtree === "/" || target === subtree || target.startsWith(`${subtree}/`);
+    if (covers && subtree.length > best) {
+      best = subtree.length;
+      mode = rule.mode;
+    }
+  }
+  return mode;
+};
+
 /** One display row in the App-scope header: a granted subtree and the mode shown
  *  there (PRINCIPALS §9 B1 / FILE_EXPLORER §2). */
 export interface MountScope {

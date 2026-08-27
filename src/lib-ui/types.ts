@@ -19,6 +19,18 @@ export interface ExplorerRoot {
   scopes?: { subtree: string; mode: "ro" | "rw" }[];
   ejectable?: boolean;
   spaceId?: string;
+  /**
+   * The RAW granted rule-set of this root — each `{subtree, mode}` a path prefix the
+   * app holds and at what access, longest-prefix wins.
+   *
+   * Deliberately NOT `scopes`, which is the DISPLAY view and clamps every non-worktree
+   * scope to `ro` because the explorer's own writes ride the kernel-gated host actions.
+   * This is the authority the host will check a DELEGATION against (R3-267 `openWith`),
+   * so it must be the real thing: asking for `rw` where the grant is `ro` is refused as
+   * a mode escalation, and asking for `ro` where the grant is `rw` needlessly hands a
+   * dispatched viewer a read-only corpus (R3-266). Absent ⇒ unknown, treat as `ro`.
+   */
+  grants?: { subtree: string; mode: "ro" | "rw" }[];
 }
 
 /** One directory entry as the view consumes it (directories first, then files). */

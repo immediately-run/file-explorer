@@ -5,11 +5,22 @@
   "type": "module",
   "immediately.run": {
     "requireLatest": "stale_ok",
+    "invokes": [
+      {
+        "task": "open-wiki",
+        "version": "^1"
+      },
+      {
+        "task": "open-project",
+        "version": "^1"
+      }
+    ],
     "requests": {
-      "llm:chat": {}
+      "llm:chat": {},
+      "task:invoke": {}
     }
   },
-  "//exports": "file-explorer-library Phase 03 / LIBRARY_MOUNTS_SPEC — this repo is ALSO a consumable library. SOURCE entries (no dist build): the immediately.run bundler transpiles the source at runtime via the git-mount, and a local consumer's bundler transpiles it too. '.' = the headless view + helpers (no SDK); './sdk' = the SDK adapter; './styles.css' = the stylesheet. The app entry (App.tsx) is unaffected.",
+  "//exports": "file-explorer-library Phase 03 / LIBRARY_MOUNTS_SPEC \u2014 this repo is ALSO a consumable library. SOURCE entries (no dist build): the immediately.run bundler transpiles the source at runtime via the git-mount, and a local consumer's bundler transpiles it too. '.' = the headless view + helpers (no SDK); './sdk' = the SDK adapter; './styles.css' = the stylesheet. The app entry (App.tsx) is unaffected.",
   "exports": {
     ".": "./src/lib-ui/index.ts",
     "./sdk": "./src/lib-ui/sdk/index.ts",
