@@ -10,7 +10,16 @@
 // Behavior is byte-for-byte the same as the pre-extraction app: the same four
 // layouts, the same `TreeStore` + `useLayout`, the same context menu, breadcrumb,
 // scope headers, gestures, and the FX-1/FX-2/FX-4a/FX-4b invariants.
-import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 import {
   FolderTree,
   Folder,
@@ -138,7 +147,12 @@ export interface FileExplorerViewProps {
    *  (one per app with settings, say) — an unbounded N cannot be squeezed into a fixed
    *  row, so it gets its own scrollable strip instead of shrinking its siblings to
    *  slivers. */
-  header?: { title?: string; glyph?: ReactNode; actions?: ReactNode; tray?: ReactNode };
+  header?: {
+    title?: string;
+    glyph?: ReactNode;
+    actions?: ReactNode;
+    tray?: ReactNode;
+  };
   /** Replaces the built-in "no files" empty state. */
   emptyState?: ReactNode;
 }
@@ -172,7 +186,8 @@ const TreeNode = memo(function TreeNode({
   const [dropTarget, setDropTarget] = useState(false);
 
   useEffect(() => {
-    if (isDir && open && entries === undefined && !errored) store.ensureLoaded(path);
+    if (isDir && open && entries === undefined && !errored)
+      store.ensureLoaded(path);
   }, [isDir, open, entries, errored, path, store]);
 
   const repoRel = toMountRel(rootPath, path);
@@ -196,7 +211,9 @@ const TreeNode = memo(function TreeNode({
   const deletable = writable && !isProtected(repoRel) && !!handlers.onDelete;
   const rowCtx: RowCtx = { absPath: path, isDir, rootPath, mountId, writable };
 
-  const longPress = useLongPress((x, y) => handlers.onMenu({ clientX: x, clientY: y }, rowCtx));
+  const longPress = useLongPress((x, y) =>
+    handlers.onMenu({ clientX: x, clientY: y }, rowCtx),
+  );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -246,7 +263,10 @@ const TreeNode = memo(function TreeNode({
     setDropTarget(false);
     handlers.cancelDragOut(); // the drop landed inside the explorer → not a drag-out
     if (move) {
-      const { from, rootPath: fromRoot } = JSON.parse(move) as { from: string; rootPath: string };
+      const { from, rootPath: fromRoot } = JSON.parse(move) as {
+        from: string;
+        rootPath: string;
+      };
       handlers.onMoveDrop(from, fromRoot, path, rootPath);
     } else if (files.length) {
       handlers.onUploadDrop(files, path, writable);
@@ -256,7 +276,12 @@ const TreeNode = memo(function TreeNode({
   const Icon = isDir ? (open ? FolderOpen : Folder) : FileIcon;
 
   return (
-    <li role="treeitem" aria-expanded={isDir ? open : undefined} aria-selected={!isDir ? selected : undefined} aria-label={name}>
+    <li
+      role="treeitem"
+      aria-expanded={isDir ? open : undefined}
+      aria-selected={!isDir ? selected : undefined}
+      aria-label={name}
+    >
       <div
         className={
           "tnode" +
@@ -355,12 +380,18 @@ const TreeNode = memo(function TreeNode({
       {isDir && open && (
         <ul role="group">
           {errored && (
-            <li className="tnode tnode--muted" style={{ paddingLeft: 8 + (depth + 1) * 14 }}>
+            <li
+              className="tnode tnode--muted"
+              style={{ paddingLeft: 8 + (depth + 1) * 14 }}
+            >
               Couldn’t read this folder.
             </li>
           )}
           {entries?.length === 0 && (
-            <li className="tnode tnode--muted" style={{ paddingLeft: 8 + (depth + 1) * 14 }}>
+            <li
+              className="tnode tnode--muted"
+              style={{ paddingLeft: 8 + (depth + 1) * 14 }}
+            >
               Empty
             </li>
           )}
@@ -506,13 +537,19 @@ function FileExplorerView({
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
   // Inline prompt for create / rename: a single targeted input.
   const [prompt, setPrompt] = useState<
-    | { mode: "create-file" | "create-folder"; baseDir: string; rootPath: string }
+    | {
+        mode: "create-file" | "create-folder";
+        baseDir: string;
+        rootPath: string;
+      }
     | { mode: "rename"; targetAbs: string; rootPath: string; initial: string }
     | null
   >(null);
   const [promptValue, setPromptValue] = useState("");
   const uploadInputRef = useRef<HTMLInputElement>(null);
-  const uploadTargetRef = useRef<{ dir: string; rootPath: string } | null>(null);
+  const uploadTargetRef = useRef<{ dir: string; rootPath: string } | null>(
+    null,
+  );
 
   // The store reads through the injected fs. `fs` is stable per consumer, so the
   // store is constructed once (a changing `fs` would warrant a fresh store).
@@ -532,7 +569,8 @@ function FileExplorerView({
 
   const ordered = useMemo(() => orderMounts(roots), [roots]);
   const rootByPath = useCallback(
-    (p: string) => ordered.find((m) => p === m.path || p.startsWith(m.path + "/")) ?? null,
+    (p: string) =>
+      ordered.find((m) => p === m.path || p.startsWith(m.path + "/")) ?? null,
     [ordered],
   );
   // Idempotent + emit-free: safe during render so new scopes paint open.
@@ -574,9 +612,18 @@ function FileExplorerView({
 
   // Reveal the EDITOR's active file (FX-4b). Distinct from the stage hint above in
   // both trust and intent: `activeFile` rides the elevated `editor-context` push
-  // from the host, and it only ever changes because a user opened that file (or
-  // because the initial route seeded the editor) — so following it is not the
-  // untrusted, activation-free highlight the R3-268 contract governs. Without this
+  // from the host, and it changes only through a GATED host intent — `editor:open`
+  // (the cross-app "open this file" the explorer itself uses) or `editor:document`
+  // `setActive` (the editor's own session) — so following it is not the untrusted,
+  // activation-free highlight the R3-268 contract governs.
+  //
+  // This used to say `activeFile` "only ever changes because a user opened that
+  // file". That was already strained — `setActive` is programmatic — and R3-388
+  // falsified it outright by adding a second `editor:open` holder whose calls fire on
+  // a run completing and on Enter in a list, not only on a click. The invariant that
+  // actually holds is the one above: not "a human clicked", but "a frame the host
+  // gated did this", of which there are now several. Following it is safe because the
+  // GATE is the check, not because a human was assumed. Without this
   // the very first thing an edit-mode session shows is an entrypoint deep under a
   // COLLAPSED folder, with nothing in the tree saying which file that is.
   // Expand-only (a folder the user closed is never re-opened) + `scrollIntoView`;
@@ -586,7 +633,10 @@ function FileExplorerView({
   // routinely lands before the mounts do, and `revealPath` can only expand under
   // roots the store already knows — a reveal against an empty root set is silently
   // inert, and `activePath` alone would never fire again to retry it.
-  const rootKey = useMemo(() => ordered.map((m) => m.path).join("\u0000"), [ordered]);
+  const rootKey = useMemo(
+    () => ordered.map((m) => m.path).join("\u0000"),
+    [ordered],
+  );
   useEffect(() => {
     if (!activePath) return;
     store.revealPath(activePath);
@@ -608,7 +658,10 @@ function FileExplorerView({
   // On each change, report the mount-relative paths of the set to a batch consumer
   // via `onSelectionChange`, resolving the owning root (single-panel consumers keep
   // the set within one root). Runs only under `selectionMode === "multi"`.
-  const selectionSet = useSyncExternalStore(store.subscribe, store.getSelection);
+  const selectionSet = useSyncExternalStore(
+    store.subscribe,
+    store.getSelection,
+  );
   const prevSelectionRef = useRef(selectionSet);
   useEffect(() => {
     // Skip the mount-time run (no change yet) so we don't emit a spurious empty set.
@@ -633,7 +686,10 @@ function FileExplorerView({
   const controlledCwd = cwdProp !== undefined;
   const sourceCwd = controlledCwd ? cwdProp : cwd;
   const effCwd =
-    sourceCwd && ordered.some((m) => sourceCwd === m.path || sourceCwd.startsWith(m.path + "/"))
+    sourceCwd &&
+    ordered.some(
+      (m) => sourceCwd === m.path || sourceCwd.startsWith(m.path + "/"),
+    )
       ? sourceCwd
       : null;
   const effColPath =
@@ -675,17 +731,23 @@ function FileExplorerView({
       if (next !== layout) {
         const sel = store.getSelected();
         if (next === "list" || next === "icons") {
-          setCwd(sel ? dirOf(sel) : ordered.length === 1 ? ordered[0].path : null);
+          setCwd(
+            sel ? dirOf(sel) : ordered.length === 1 ? ordered[0].path : null,
+          );
         } else if (next === "columns") {
           const mount = sel
-            ? ordered.find((m) => sel === m.path || sel.startsWith(m.path + "/"))
+            ? ordered.find(
+                (m) => sel === m.path || sel.startsWith(m.path + "/"),
+              )
             : ordered.length === 1
               ? ordered[0]
               : undefined;
           if (!mount) setColPath([]);
           else {
             const path = [mount.path];
-            const segs = toMountRel(mount.path, sel ? dirOf(sel) : mount.path).split("/").filter(Boolean);
+            const segs = toMountRel(mount.path, sel ? dirOf(sel) : mount.path)
+              .split("/")
+              .filter(Boolean);
             let acc = mount.path;
             for (const s of segs) {
               acc = joinPath(acc, s);
@@ -749,7 +811,12 @@ function FileExplorerView({
   );
 
   const onMoveDrop = useCallback(
-    (fromAbs: string, fromRoot: string, targetDir: string, targetRoot: string) => {
+    (
+      fromAbs: string,
+      fromRoot: string,
+      targetDir: string,
+      targetRoot: string,
+    ) => {
       if (!actions?.rename) return;
       const reason = moveRejection(fromAbs, targetDir, fromRoot, targetRoot);
       if (reason) {
@@ -770,7 +837,9 @@ function FileExplorerView({
       if (!actions?.upload || !writable || !files.length) return;
       const root = rootByPath(targetDirAbs);
       if (!root) return;
-      void runWrite(() => actions.upload!(root, toMountRel(root.path, targetDirAbs), files));
+      void runWrite(() =>
+        actions.upload!(root, toMountRel(root.path, targetDirAbs), files),
+      );
     },
     [actions, runWrite, rootByPath],
   );
@@ -795,7 +864,8 @@ function FileExplorerView({
       const root = rootByPath(absPath);
       if (!root) return;
       const mountRel = toMountRel(rootPath, absPath);
-      if (!window.confirm(`Delete ${isDir ? "folder" : "file"} ${mountRel}?`)) return;
+      if (!window.confirm(`Delete ${isDir ? "folder" : "file"} ${mountRel}?`))
+        return;
       void runWrite(() => actions.delete!(root, mountRel));
     },
     [actions, runWrite, rootByPath],
@@ -808,7 +878,12 @@ function FileExplorerView({
       const root = rootByPath(ctx.absPath);
       const mountRel = toMountRel(ctx.rootPath, ctx.absPath);
       if (!ctx.isDir && actions?.open && root) {
-        items.push({ key: "open", label: "Open", icon: <ExternalLink size={14} />, onSelect: () => dispatchOpen(root, mountRel) });
+        items.push({
+          key: "open",
+          label: "Open",
+          icon: <ExternalLink size={14} />,
+          onSelect: () => dispatchOpen(root, mountRel),
+        });
       }
       if (ctx.writable) {
         const baseDir = ctx.isDir ? ctx.absPath : dirOf(ctx.absPath);
@@ -818,7 +893,11 @@ function FileExplorerView({
             label: "New file here",
             icon: <FilePlus size={14} />,
             onSelect: () => {
-              setPrompt({ mode: "create-file", baseDir, rootPath: ctx.rootPath });
+              setPrompt({
+                mode: "create-file",
+                baseDir,
+                rootPath: ctx.rootPath,
+              });
               setPromptValue("");
             },
           });
@@ -829,7 +908,11 @@ function FileExplorerView({
             label: "New folder here",
             icon: <FolderPlus size={14} />,
             onSelect: () => {
-              setPrompt({ mode: "create-folder", baseDir, rootPath: ctx.rootPath });
+              setPrompt({
+                mode: "create-folder",
+                baseDir,
+                rootPath: ctx.rootPath,
+              });
               setPromptValue("");
             },
           });
@@ -840,7 +923,10 @@ function FileExplorerView({
             label: "Upload here…",
             icon: <Upload size={14} />,
             onSelect: () => {
-              uploadTargetRef.current = { dir: toMountRel(ctx.rootPath, baseDir), rootPath: ctx.rootPath };
+              uploadTargetRef.current = {
+                dir: toMountRel(ctx.rootPath, baseDir),
+                rootPath: ctx.rootPath,
+              };
               uploadInputRef.current?.click();
             },
           });
@@ -852,7 +938,12 @@ function FileExplorerView({
               label: "Rename…",
               icon: <Pencil size={14} />,
               onSelect: () => {
-                setPrompt({ mode: "rename", targetAbs: ctx.absPath, rootPath: ctx.rootPath, initial: basename(ctx.absPath) });
+                setPrompt({
+                  mode: "rename",
+                  targetAbs: ctx.absPath,
+                  rootPath: ctx.rootPath,
+                  initial: basename(ctx.absPath),
+                });
                 setPromptValue(basename(ctx.absPath));
               },
             });
@@ -884,9 +975,20 @@ function FileExplorerView({
       onUploadDrop,
       beginDragOut: (absPath, isDir) => beginDragOut(absPath, isDir),
       cancelDragOut,
-      onDelete: actions?.delete ? onDelete : (undefined as unknown as NodeHandlers["onDelete"]),
+      onDelete: actions?.delete
+        ? onDelete
+        : (undefined as unknown as NodeHandlers["onDelete"]),
     }),
-    [handleActivate, openMenu, onMoveDrop, onUploadDrop, beginDragOut, cancelDragOut, onDelete, actions],
+    [
+      handleActivate,
+      openMenu,
+      onMoveDrop,
+      onUploadDrop,
+      beginDragOut,
+      cancelDragOut,
+      onDelete,
+      actions,
+    ],
   );
 
   const submitPrompt = () => {
@@ -896,7 +998,10 @@ function FileExplorerView({
     const value = promptValue.trim().replace(/^\/+/, "");
     setPromptValue("");
     if (!value) return;
-    const root = rootByPath(p.rootPath === "" ? "" : p.rootPath) ?? ordered.find((m) => m.path === p.rootPath) ?? null;
+    const root =
+      rootByPath(p.rootPath === "" ? "" : p.rootPath) ??
+      ordered.find((m) => m.path === p.rootPath) ??
+      null;
     if (!root) return;
     if (p.mode === "rename") {
       if (!actions?.rename) return;
@@ -946,7 +1051,12 @@ function FileExplorerView({
           // until the panel is genuinely wide (R3-239): the switcher's text labels
           // are the header's largest single consumer, and a container query cannot
           // see how many siblings it is competing with.
-          <div className={"panel__actions" + (header?.actions ? " panel__actions--extra" : "")}>
+          <div
+            className={
+              "panel__actions" +
+              (header?.actions ? " panel__actions--extra" : "")
+            }
+          >
             {hasRoots && (
               <>
                 <LayoutSwitcher value={layout} onChange={chooseLayout} />
@@ -977,7 +1087,11 @@ function FileExplorerView({
       {header?.tray && <div className="panel__tray">{header.tray}</div>}
 
       {error && (
-        <div className="panel__error" role="alert" onClick={() => setError(null)}>
+        <div
+          className="panel__error"
+          role="alert"
+          onClick={() => setError(null)}
+        >
           {error}
         </div>
       )}
@@ -988,7 +1102,13 @@ function FileExplorerView({
             className="panel__create-input"
             autoFocus
             spellCheck={false}
-            placeholder={prompt.mode === "rename" ? "new name" : prompt.mode === "create-folder" ? "folder/path" : "path/name.ext"}
+            placeholder={
+              prompt.mode === "rename"
+                ? "new name"
+                : prompt.mode === "create-folder"
+                  ? "folder/path"
+                  : "path/name.ext"
+            }
             value={promptValue}
             onChange={(e) => setPromptValue(e.target.value)}
             onKeyDown={(e) => {
@@ -1003,11 +1123,19 @@ function FileExplorerView({
         </div>
       )}
 
-      <input ref={uploadInputRef} type="file" multiple hidden onChange={onUploadInput} aria-hidden="true" tabIndex={-1} />
+      <input
+        ref={uploadInputRef}
+        type="file"
+        multiple
+        hidden
+        onChange={onUploadInput}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
 
       <div className="panel__body">
         {!hasRoots ? (
-          emptyState ?? (
+          (emptyState ?? (
             <div className="state">
               <span className="state__icon">
                 <FolderTree size={20} aria-hidden="true" />
@@ -1015,13 +1143,37 @@ function FileExplorerView({
               <h4>No files to show yet.</h4>
               <p>Open a project or add a space and its files appear here.</p>
             </div>
-          )
+          ))
         ) : layout === "list" ? (
-          <ListView store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} selectionMode={selectionMode} handlers={handlers} />
+          <ListView
+            store={store}
+            ordered={ordered}
+            cwd={effCwd}
+            setCwd={navigateCwd}
+            activeFile={activePath}
+            selectionMode={selectionMode}
+            handlers={handlers}
+          />
         ) : layout === "icons" ? (
-          <IconGrid store={store} ordered={ordered} cwd={effCwd} setCwd={navigateCwd} activeFile={activePath} viewedFile={viewedPath} handlers={handlers} />
+          <IconGrid
+            store={store}
+            ordered={ordered}
+            cwd={effCwd}
+            setCwd={navigateCwd}
+            activeFile={activePath}
+            viewedFile={viewedPath}
+            handlers={handlers}
+          />
         ) : layout === "columns" ? (
-          <ColumnView store={store} ordered={ordered} colPath={effColPath} setColPath={navigateCols} activeFile={activePath} viewedFile={viewedPath} handlers={handlers} />
+          <ColumnView
+            store={store}
+            ordered={ordered}
+            colPath={effColPath}
+            setColPath={navigateCols}
+            activeFile={activePath}
+            viewedFile={viewedPath}
+            handlers={handlers}
+          />
         ) : (
           ordered.map((m) => (
             <Scope
