@@ -226,7 +226,10 @@ const TreeNode = memo(function TreeNode({
     } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
       e.preventDefault();
       const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      handlers.onMenu({ clientX: r.left + 12, clientY: r.bottom }, rowCtx);
+      handlers.onMenu(
+        { clientX: r.left + 12, clientY: r.bottom, currentTarget: e.currentTarget },
+        rowCtx,
+      );
     }
   };
 
@@ -546,6 +549,14 @@ function FileExplorerView({
     | null
   >(null);
   const [promptValue, setPromptValue] = useState("");
+  // The row that opened the menu the prompt came from — read synchronously in
+  // `openMenu` (a synthetic event's `currentTarget` dies with its handler) and
+  // consumed by the prompt's Escape-cancel to hand focus back (R-IX-1's return).
+  const promptReturnRef = useRef<HTMLElement | null>(null);
+  // Set while an Escape-cancel is closing the prompt, so the input's blur (fired
+  // synchronously by the focus hand-back) cannot run `submitPrompt` and turn the
+  // cancel into a commit.
+  const promptCancellingRef = useRef(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<{ dir: string; rootPath: string } | null>(
     null,
@@ -873,7 +884,12 @@ function FileExplorerView({
 
   // --- context menu construction (gated items only) ---
   const openMenu = useCallback(
-    (e: { clientX: number; clientY: number }, ctx: RowCtx) => {
+    (e: { clientX: number; clientY: number; currentTarget?: EventTarget | null }, ctx: RowCtx) => {
+      // Remember the row that opened this menu — the prompt's Escape-cancel
+      // returns focus here. Touch long-press has no row element (nothing is
+      // focused), so it clears to null rather than keeping a stale row.
+      promptReturnRef.current =
+        e.currentTarget instanceof HTMLElement ? e.currentTarget : null;
       const items: MenuItem[] = [];
       const root = rootByPath(ctx.absPath);
       const mountRel = toMountRel(ctx.rootPath, ctx.absPath);
@@ -992,6 +1008,7 @@ function FileExplorerView({
   );
 
   const submitPrompt = () => {
+    if (promptCancellingRef.current) return; // an Escape-cancel closed it, not a blur commit
     const p = prompt;
     setPrompt(null);
     if (!p) return;
@@ -1087,12 +1104,15 @@ function FileExplorerView({
       {header?.tray && <div className="panel__tray">{header.tray}</div>}
 
       {error && (
-        <div
-          className="panel__error"
-          role="alert"
-          onClick={() => setError(null)}
-        >
+        <div className="panel__error" role="alert">
           {error}
+          <button
+            type="button"
+            className="panel__error-dismiss"
+            onClick={() => setError(null)}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -1102,6 +1122,11 @@ function FileExplorerView({
             className="panel__create-input"
             autoFocus
             spellCheck={false}
+            aria-label={
+              prompt.mode === "rename"
+                ? `Rename ${prompt.initial}`
+                : `New ${prompt.mode === "create-folder" ? "folder" : "file"} in ${toMountRel(prompt.rootPath, prompt.baseDir)}`
+            }
             placeholder={
               prompt.mode === "rename"
                 ? "new name"
@@ -1114,8 +1139,15 @@ function FileExplorerView({
             onKeyDown={(e) => {
               if (e.key === "Enter") submitPrompt();
               else if (e.key === "Escape") {
+                // Cancel: close the prompt and return focus to the row that
+                // opened it. The flag keeps the blur the focus hand-back fires
+                // from re-entering `submitPrompt` (blur still commits — that
+                // is deliberate, and Enter/Escape are the explicit paths).
+                promptCancellingRef.current = true;
                 setPrompt(null);
                 setPromptValue("");
+                promptReturnRef.current?.focus();
+                promptCancellingRef.current = false;
               }
             }}
             onBlur={submitPrompt}

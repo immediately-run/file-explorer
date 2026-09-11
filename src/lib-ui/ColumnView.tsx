@@ -130,7 +130,7 @@ const Column = memo(function Column({
           )
         )}
       </div>
-      <div role="listbox" aria-label={dir === null ? "Mounts" : (mount ? mountLabel(mount) : "Files")} className="col__list">
+      <div role="listbox" aria-label={dir === null ? "Spaces" : (mount ? mountLabel(mount) : "Files")} className="col__list">
         {loading && <div className="layout__muted">Loading…</div>}
         {errored && <div className="layout__muted">Couldn’t read this folder.</div>}
         {empty && <div className="layout__muted">Empty</div>}

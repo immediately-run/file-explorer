@@ -3,8 +3,10 @@
 // App-local view state only. Lucide icons (no emoji); sentence-case tooltips; the
 // label sits beside the icon when the header is wide and collapses to icon-only
 // under a width threshold (CSS). ARIA radiogroup so it announces as one control
-// with four mutually-exclusive options.
+// with four mutually-exclusive options — with the full APG Radio Group keyboard
+// contract (roving tabindex + arrow keys) via `useRadiogroupNav`.
 import { FolderTree, List as ListIcon, Columns3, LayoutGrid, type LucideIcon } from "lucide-react";
+import { useRadiogroupNav } from "./hooks/useRadiogroupNav";
 import type { Layout } from "./types";
 
 const OPTIONS: { value: Layout; label: string; tip: string; Icon: LucideIcon }[] = [
@@ -21,8 +23,19 @@ function LayoutSwitcher({
   value: Layout;
   onChange: (next: Layout) => void;
 }) {
+  const { ref, onKeyDown } = useRadiogroupNav(
+    OPTIONS.map((o) => o.value),
+    value,
+    onChange,
+  );
   return (
-    <div className="viewswitch" role="radiogroup" aria-label="Layout">
+    <div
+      ref={ref}
+      className="viewswitch"
+      role="radiogroup"
+      aria-label="Layout"
+      onKeyDown={onKeyDown}
+    >
       {OPTIONS.map(({ value: v, label, tip, Icon }) => {
         const active = v === value;
         return (
@@ -31,6 +44,7 @@ function LayoutSwitcher({
             type="button"
             role="radio"
             aria-checked={active}
+            tabIndex={active ? 0 : -1}
             className={"viewswitch__btn" + (active ? " viewswitch__btn--active" : "")}
             title={tip}
             aria-label={tip}
