@@ -496,8 +496,8 @@ describe("R3-95 — App | Session lens (PRINCIPALS §9 B2 / D-PRIN-4)", () => {
     render(<FileExplorer />);
     expect(await screen.findByRole("tree", { name: "repo" })).toBeInTheDocument();
     // No Session lens: neither the toggle group nor the Session radio exists.
-    expect(screen.queryByRole("radiogroup", { name: "Mount lens" })).toBeNull();
-    expect(screen.queryByRole("radio", { name: "The session's mounts" })).toBeNull();
+    expect(screen.queryByRole("radiogroup", { name: "Spaces lens" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "The session's spaces" })).toBeNull();
   });
 
   it("shows the toggle for a first-party frame and switches roots to the session mounts", async () => {
@@ -512,7 +512,7 @@ describe("R3-95 — App | Session lens (PRINCIPALS §9 B2 / D-PRIN-4)", () => {
     expect(screen.queryByRole("tree", { name: "Session space" })).toBeNull();
 
     // The toggle is present (a session signal arrived). Switch to the Session lens.
-    await user.click(screen.getByRole("radio", { name: "The session's mounts" }));
+    await user.click(screen.getByRole("radio", { name: "The session's spaces" }));
 
     // Session lens: the session mount shows; the App-lens worktree is replaced.
     expect(await screen.findByRole("tree", { name: "Session space" })).toBeInTheDocument();
@@ -530,7 +530,7 @@ describe("R3-95 — App | Session lens (PRINCIPALS §9 B2 / D-PRIN-4)", () => {
     expect(await screen.findByRole("tree", { name: "Session space" })).toBeInTheDocument();
     expect(screen.queryByRole("tree", { name: "repo" })).toBeNull();
     // The toggle is still present so the user can narrow to the App lens.
-    expect(screen.getByRole("radio", { name: "The session's mounts" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "The session's spaces" })).toBeInTheDocument();
   });
 });
 
@@ -623,7 +623,7 @@ describe("R3-238 — settings filesystems are hidden behind one advanced flag", 
     expect(screen.queryByRole("tree", { name: "color-picker settings" })).toBeNull();
     // The lens toggle still renders — `available` reads the raw session signal, not
     // the filtered roots, so filtering can never strand the user in one lens.
-    expect(screen.getByRole("radio", { name: "The session's mounts" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "The session's spaces" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Show all filesystems" }));
     expect(await screen.findByRole("tree", { name: "color-picker settings" })).toBeInTheDocument();

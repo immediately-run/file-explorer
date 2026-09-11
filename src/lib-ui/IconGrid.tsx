@@ -152,23 +152,28 @@ function IconGrid({
     <div className="layout layout--icons">
       <Breadcrumb crumbs={crumbs} mount={mount} onNavigate={setCwd} />
       <div ref={gridRef} role="grid" aria-label="Files" className="igrid" onKeyDown={onKeyDownGrid}>
-        {loading && <div className="layout__muted">Loading…</div>}
-        {errored && <div className="layout__muted">Couldn’t read this folder.</div>}
-        {empty && <div className="layout__muted">Empty</div>}
-        {rows.map((row) => {
-          const mountRel = toMountRel(row.ctx.rootPath, row.ctx.absPath);
-          return (
-            <IconTile
-              key={row.ctx.absPath}
-              row={row}
-              selected={selectedPath === row.ctx.absPath}
-              active={!row.ctx.isDir && mountRel === activeFile}
-              viewed={!row.ctx.isDir && mountRel === viewedFile}
-              onOpen={onOpen}
-              handlers={handlers}
-            />
-          );
-        })}
+        {/* A gridcell's required parent is a row. The tiles sit in ONE row
+            because the wrapping is the CSS grid's auto-fill (`.igrid__row`),
+            which has no per-visual-row DOM to mirror. */}
+        <div role="row" className="igrid__row">
+          {loading && <div className="layout__muted">Loading…</div>}
+          {errored && <div className="layout__muted">Couldn’t read this folder.</div>}
+          {empty && <div className="layout__muted">Empty</div>}
+          {rows.map((row) => {
+            const mountRel = toMountRel(row.ctx.rootPath, row.ctx.absPath);
+            return (
+              <IconTile
+                key={row.ctx.absPath}
+                row={row}
+                selected={selectedPath === row.ctx.absPath}
+                active={!row.ctx.isDir && mountRel === activeFile}
+                viewed={!row.ctx.isDir && mountRel === viewedFile}
+                onOpen={onOpen}
+                handlers={handlers}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );

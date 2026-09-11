@@ -19,7 +19,15 @@ export type { RowCtx };
  *  `cancelDragOut` callback (Phase 02 §C.2), so this hook holds NO SDK import. */
 export interface NodeHandlers {
   onActivate: (absPath: string, isDir: boolean) => void;
-  onMenu: (e: { clientX: number; clientY: number }, ctx: RowCtx) => void;
+  /** `e` is the (structural) context-menu event; `currentTarget`, when present,
+   *  is the row element that opened the menu — the view reads it synchronously
+   *  (a synthetic event's `currentTarget` dies with the handler) to know where
+   *  to return focus when the menu's inline prompt is Escape-cancelled. The
+   *  long-press path has no currentTarget (nothing is focused on touch). */
+  onMenu: (
+    e: { clientX: number; clientY: number; currentTarget?: EventTarget | null },
+    ctx: RowCtx,
+  ) => void;
   onMoveDrop: (fromAbs: string, fromRoot: string, targetDir: string, targetRoot: string) => void;
   onUploadDrop: (files: File[], targetDir: string, writable: boolean) => void;
   beginDragOut: (absPath: string, isDir: boolean, mountId: string, rootPath: string) => void;

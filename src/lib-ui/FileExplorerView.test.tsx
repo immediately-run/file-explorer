@@ -244,4 +244,62 @@ describe("FileExplorerView (headless, no SDK)", () => {
     expect(indexRow).not.toHaveClass("lrow--selected");
     expect(utilRow).toHaveClass("lrow--selected");
   });
+
+  it("the inline rename prompt is labelled with operation + target, and Escape cancels back to the triggering row without committing", async () => {
+    const user = userEvent.setup();
+    const rename = vi.fn(() => Promise.resolve());
+    const createFile = vi.fn(() => Promise.resolve());
+    render(
+      <FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ rename, createFile }} />,
+    );
+    await screen.findByText("src");
+    await user.click(screen.getByText("src"));
+    await screen.findByText("index.ts");
+
+    // Rename… on index.ts → a labelled input (not placeholder-only naming).
+    const row = screen.getByText("index.ts").closest("div.tnode") as HTMLElement;
+    fireEvent.contextMenu(screen.getByText("index.ts"));
+    const menu = await screen.findByRole("menu");
+    await user.click(within(menu).getByRole("menuitem", { name: /Rename/ }));
+    const input = screen.getByRole("textbox", { name: "Rename index.ts" });
+    expect(input).toHaveFocus();
+    await user.type(input, "x");
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(rename).not.toHaveBeenCalled(); // a cancel is not a blur-commit
+    expect(row).toHaveFocus(); // focus returns to the row that opened it
+
+    // The create prompt names its operation and directory the same way.
+    fireEvent.contextMenu(screen.getByText("index.ts"));
+    const menu2 = await screen.findByRole("menu");
+    await user.click(within(menu2).getByRole("menuitem", { name: /New file here/ }));
+    expect(screen.getByRole("textbox", { name: "New file in /src" })).toBeInTheDocument();
+  });
+
+  it("the transient error banner is dismissed by a focusable Dismiss button", async () => {
+    const user = userEvent.setup();
+    const rename = vi.fn(() => Promise.resolve());
+    render(<FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ rename }} />);
+    await screen.findByText("src");
+    // A cross-root drop is rejected with the banner (the easiest headless path).
+    const srcRow = screen.getByText("src").closest("div.tnode") as HTMLElement;
+    fireEvent.drop(srcRow, {
+      dataTransfer: {
+        types: ["application/x-ir-file-move"],
+        files: [],
+        getData: (t: string) =>
+          t === "application/x-ir-file-move"
+            ? JSON.stringify({ from: "/spaces/s1/x.md", rootPath: "/spaces/s1" })
+            : "",
+        setData: () => {},
+        dropEffect: "",
+        effectAllowed: "",
+      },
+    });
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent(/spaces/i);
+    await user.click(within(banner).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
