@@ -25,3 +25,11 @@ export function rovingTreeFocus(container: HTMLElement | null, key: string): boo
   rows[next < 0 ? 0 : next]?.focus();
   return true;
 }
+
+/** Focus the FIRST child row of an open tree row (APG Tree View's ArrowRight
+ *  in an expanded folder). The row's own child group is its sibling — the one
+ *  spelling both trees (the view's and the move picker's) use. */
+export function firstTreeChildFocus(row: HTMLElement): void {
+  const first = row.parentElement?.querySelector('[role="group"] [role="treeitem"]');
+  (first as HTMLElement | null)?.focus();
+}

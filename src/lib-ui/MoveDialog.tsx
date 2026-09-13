@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { Folder, FolderOpen } from "lucide-react";
 import { TreeStore, useRowFocused, useNode, useTreeUnfocused } from "./treeStore";
 import { useOverlayFocusDismiss } from "./hooks/useOverlayFocusDismiss";
-import { rovingTreeFocus } from "./hooks/rovingTreeFocus";
+import { firstTreeChildFocus, rovingTreeFocus } from "./hooks/rovingTreeFocus";
 import { joinPath, moveRefusalLabel } from "./explorer";
 import type { DirEntry, ExplorerRoot } from "./types";
 
@@ -63,12 +63,7 @@ function DirRow({
       if (!open) {
         store.open(path);
       } else {
-        // Same contract as the main tree: in an open folder, step to the first
-        // child (its rows may still be loading — the move then no-ops).
-        const first = e.currentTarget.parentElement?.querySelector(
-          '[role="group"] [role="treeitem"]',
-        );
-        (first as HTMLElement | null)?.focus();
+        firstTreeChildFocus(e.currentTarget as HTMLElement);
       }
     } else if (e.key === "ArrowLeft" && open) {
       store.toggle(path);

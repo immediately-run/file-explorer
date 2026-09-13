@@ -64,7 +64,7 @@ import ColumnView from "./ColumnView";
 import MoveDialog, { type MoveTarget } from "./MoveDialog";
 import { useLongPress } from "./hooks/useLongPress";
 import { useLayout } from "./hooks/useLayout";
-import { rovingTreeFocus } from "./hooks/rovingTreeFocus";
+import { firstTreeChildFocus, rovingTreeFocus } from "./hooks/rovingTreeFocus";
 import { type NodeHandlers, openRowMenuKey } from "./hooks/useRowInteractions";
 import { runCreate, runDelete, runRename, runUpload, type WritePorts } from "./writeFlow";
 import { announce as announceMessage, subscribeToAnnouncements } from "./announce";
@@ -247,10 +247,7 @@ const TreeNode = memo(function TreeNode({
       if (!open) {
         store.toggle(path);
       } else {
-        const first = e.currentTarget.parentElement?.querySelector(
-          '[role="group"] [role="treeitem"]',
-        );
-        (first as HTMLElement | null)?.focus();
+        firstTreeChildFocus(e.currentTarget as HTMLElement);
       }
     } else if (e.key === "ArrowLeft") {
       // Collapse an open folder; otherwise step out to the parent row.

@@ -114,3 +114,34 @@ describe("SummaryModal dialog contract", () => {
     expect(await screen.findByText(/Saved \/src\/index\.ts\.summary\.md/)).toBeInTheDocument();
   });
 });
+
+describe("SummaryModal save failure", () => {
+
+  it("a failed save renders its reason at stream-done and announces the failure", async () => {
+    const user = userEvent.setup();
+    h.uploadFile.mockRejectedValueOnce(Object.assign(new Error("read-only"), {}));
+    const heard: string[] = [];
+    const { subscribeToAnnouncements } = await import("../announce");
+    const unsubscribe = subscribeToAnnouncements((msg) => heard.push(msg));
+    try {
+      await renderOpen();
+      expect(
+        await screen.findByRole("button", { name: "Save summary" }),
+      ).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Save summary" }));
+
+      // The reason renders while the stream result stays on screen (the save
+      // failure is not the stream's error state)…
+      expect(
+        await screen.findByText(/Couldn.t save: read-only/),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/A summary\./)).toBeInTheDocument();
+      // …and both halves announced through the one channel.
+      expect(heard).toContain("Saving summary of index.ts…");
+      expect(heard.some((m) => m.startsWith("Couldn't save: read-only"))).toBe(true);
+    } finally {
+      unsubscribe();
+    }
+  });
+});
