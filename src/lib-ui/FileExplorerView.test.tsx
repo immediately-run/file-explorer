@@ -663,3 +663,18 @@ describe("MoveDialog keyboard", () => {
     );
   });
 });
+
+// --- ArrowRight steps into an open folder's first child (APG Tree View) --------
+describe("tree ArrowRight step-in", () => {
+  it("ArrowRight on an OPEN folder focuses its first child row", async () => {
+    const user = userEvent.setup();
+    render(<FileExplorerView roots={[worktree]} fs={fakeFs} />);
+    await screen.findByText("src");
+    await user.click(screen.getByText("src"));
+    await screen.findByText("index.ts");
+
+    screen.getByRole("treeitem", { name: "src" }).focus();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("treeitem", { name: "index.ts" })).toHaveFocus();
+  });
+});

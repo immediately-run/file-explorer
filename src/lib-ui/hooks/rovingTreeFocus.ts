@@ -28,8 +28,11 @@ export function rovingTreeFocus(container: HTMLElement | null, key: string): boo
 
 /** Focus the FIRST child row of an open tree row (APG Tree View's ArrowRight
  *  in an expanded folder). The row's own child group is its sibling — the one
- *  spelling both trees (the view's and the move picker's) use. */
+ *  spelling both trees (the view's and the move picker's) use. `:scope >`
+ *  matters: a bare `[role="group"] [role="treeitem"]` matches the row ITSELF
+ *  (some ancestor group always exists above it), which turns the step-in into
+ *  a silent no-op. */
 export function firstTreeChildFocus(row: HTMLElement): void {
-  const first = row.parentElement?.querySelector('[role="group"] [role="treeitem"]');
+  const first = row.parentElement?.querySelector(':scope > [role="group"] [role="treeitem"]');
   (first as HTMLElement | null)?.focus();
 }
