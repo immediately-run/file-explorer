@@ -126,3 +126,25 @@ describe("TreeStore write path", () => {
     expect(store.getFocused()).toBe("/mnt/abc/src");
   });
 });
+
+describe("TreeStore refreshDir vs concurrent writes", () => {
+  it("a fresh listing never wipes the row of a write still in flight", async () => {
+    const { fs, readdir } = countingFs();
+    const store = new TreeStore(fs);
+    store.ensureRoots(["/mnt/abc"]);
+    store.ensureLoaded("/mnt/abc");
+    await vi.waitFor(() => expect(store.getEntries("/mnt/abc")).toBeDefined());
+
+    // Two creates dispatched; neither resolved yet. The fixture's listing
+    // (what the authority returns) knows about neither.
+    store.insertPending("/mnt/abc", { name: "aaa.ts", isDir: false });
+    store.insertPending("/mnt/abc", { name: "zzz.ts", isDir: false });
+    store.refreshDir("/mnt/abc");
+
+    await vi.waitFor(() => expect(readdir.mock.calls.length).toBe(2));
+    const names = store.getEntries("/mnt/abc")!.map((e) => e.name);
+    expect(names).toEqual(["src", "aaa.ts", "README.md", "zzz.ts"]);
+    expect(store.isPending("/mnt/abc/aaa.ts")).toBe(true);
+    expect(store.isPending("/mnt/abc/zzz.ts")).toBe(true);
+  });
+});

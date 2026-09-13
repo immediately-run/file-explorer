@@ -453,7 +453,7 @@ describe("FileExplorerView write path (optimistic rows, narrow refetch)", () => 
           effectAllowed: "",
         },
       });
-      expect(rename).toHaveBeenCalledWith(worktree, "/README.md", "/src/README.md");
+      expect(rename).toHaveBeenCalledWith(worktree, "/README.md", "/src/README.md", false);
       unmount();
     }
     rename.mockClear();
@@ -473,7 +473,7 @@ describe("FileExplorerView write path (optimistic rows, narrow refetch)", () => 
       await user.click(within(dialog).getByRole("button", { name: "Move here" }));
 
       // One action, two triggers — identical arguments.
-      expect(rename).toHaveBeenCalledWith(worktree, "/README.md", "/src/README.md");
+      expect(rename).toHaveBeenCalledWith(worktree, "/README.md", "/src/README.md", false);
       expect(screen.getByRole("status")).toHaveTextContent(/Moved README\.md to \/src/);
     }
   });
@@ -529,5 +529,137 @@ describe("FileExplorerView tree keyboard (APG)", () => {
     expect(
       screen.getAllByRole("treeitem").filter((el) => el.tabIndex === 0),
     ).toEqual([util]);
+  });
+});
+
+// --- uploads: the batch write announces both halves and refetches narrowly ------
+describe("FileExplorerView upload path", () => {
+  it("announces Uploading…/Uploaded and refetches only the target directory", async () => {
+    const callsBeforeBase = readdir.mock.calls.length;
+    let resolveUpload!: () => void;
+    const upload = vi.fn(
+      () => new Promise<void>((res) => (resolveUpload = res)),
+    );
+    render(<FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ upload }} />);
+    await screen.findByText("src");
+    const callsBefore = readdir.mock.calls.length;
+
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.drop(screen.getByText("src").closest("div.tnode") as HTMLElement, {
+      dataTransfer: {
+        types: ["Files"],
+        files: [file],
+        getData: () => "",
+        setData: () => {},
+        dropEffect: "",
+        effectAllowed: "",
+      },
+    });
+    expect(upload).toHaveBeenCalledWith(worktree, "/src", [file]);
+    expect(screen.getByRole("status")).toHaveTextContent("Uploading 1 file…");
+    expect(readdir.mock.calls.length).toBe(callsBefore); // no refetch before settle
+
+    TREE["/mnt/abc/src"] = [...SRC_ENTRIES, { name: "note.txt", isDir: false }];
+    await act(async () => resolveUpload());
+    expect(screen.getByRole("status")).toHaveTextContent("Uploaded 1 file.");
+    await act(async () => {});
+    expect(readdir.mock.calls.length).toBe(callsBefore + 1);
+    expect(readdir.mock.calls.at(-1)).toEqual(["/mnt/abc/src"]);
+    expect(callsBefore > callsBeforeBase).toBe(true); // the reads above were real
+  });
+
+  it("a failed upload names the reason in banner + announcement, no refetch", async () => {
+    let rejectUpload!: (e: unknown) => void;
+    const upload = vi.fn(
+      () =>
+        new Promise<void>((_, rej) => (rejectUpload = rej)),
+    );
+    render(<FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ upload }} />);
+    await screen.findByText("src");
+    const callsBefore = readdir.mock.calls.length;
+
+    fireEvent.drop(screen.getByText("src").closest("div.tnode") as HTMLElement, {
+      dataTransfer: {
+        types: ["Files"],
+        files: [new File(["hello"], "big.bin", { type: "text/plain" })],
+        getData: () => "",
+        setData: () => {},
+        dropEffect: "",
+        effectAllowed: "",
+      },
+    });
+    await act(async () =>
+      rejectUpload(Object.assign(new Error("too large"), { code: "too-large" })),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("That file is too large to upload.");
+    expect(screen.getByRole("status")).toHaveTextContent(/Couldn’t upload/);
+    expect(readdir.mock.calls.length).toBe(callsBefore);
+  });
+});
+
+// --- every layout's rows expose the menu by keyboard (ContextMenu / Shift+F10) ---
+describe("row menu key (ContextMenu / Shift+F10) reaches every layout's rows", () => {
+  it("list layout: the menu key on an option opens the row's context menu", async () => {
+    const del = vi.fn(() => Promise.resolve("/README.md"));
+    const user = userEvent.setup();
+    render(
+      <FileExplorerView
+        roots={[worktree]}
+        fs={fakeFs}
+        layout="list"
+        actions={{ delete: del }}
+      />,
+    );
+    // The uncontrolled list starts at the roots-root; enter the single mount.
+    await user.click(await screen.findByRole("option", { name: /^repo/ }));
+    const readme = await screen.findByRole("option", { name: /README\.md/ });
+    readme.focus();
+    await user.keyboard("{Shift>}{F10}{/Shift}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /^Delete/ })).toBeInTheDocument();
+  });
+
+  it("tree layout: the ContextMenu key opens the row's menu at the row", async () => {
+    const user = userEvent.setup();
+    render(<FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ open: vi.fn() }} />);
+    const readme = await screen.findByRole("treeitem", { name: "README.md" });
+    readme.focus();
+    await user.keyboard("{ContextMenu}");
+    const menu = await screen.findByRole("menu");
+    expect(within(menu).getByRole("menuitem", { name: /Open/ })).toBeInTheDocument();
+  });
+});
+
+// --- the picker is keyboard-operable end to end (the 2.5.7 path itself) --------
+describe("MoveDialog keyboard", () => {
+  it("Tab reaches the footer buttons (Move here / Cancel) from the tree", async () => {
+    const rename = vi.fn(() => Promise.resolve({ name: "README.md", isDir: false }));
+    const user = userEvent.setup();
+    render(<FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ rename }} />);
+    await screen.findByText("src");
+    fireEvent.contextMenu(screen.getByText("README.md"));
+    const menu = await screen.findByRole("menu");
+    await user.click(within(menu).getByRole("menuitem", { name: /Move to/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Move README.md to a folder" });
+
+    // Choose a destination first — "Move here" is disabled (outside the trap)
+    // until something is chosen.
+    await user.click(within(dialog).getByRole("treeitem", { name: "src" }));
+
+    // Focus starts in the tree (the dialog's first focusable). Tab walks the
+    // tree's stop, then reaches the footer buttons — the trap bounds the PANEL.
+    const lastTreeStop = [
+      ...dialog.querySelectorAll<HTMLElement>('[role="treeitem"][tabindex="0"]'),
+    ].pop()!;
+    lastTreeStop.focus();
+    let reached = false;
+    for (let i = 0; i < 6 && !reached; i++) {
+      await user.keyboard("{Tab}");
+      reached = document.activeElement?.textContent === "Move here";
+    }
+    expect(reached).toBe(true);
+    expect(document.activeElement).toBe(
+      within(dialog).getByRole("button", { name: "Move here" }),
+    );
   });
 });

@@ -129,3 +129,13 @@ describe("makeSdkActions write contract", () => {
     });
   });
 });
+
+describe("makeSdkActions degraded rename settle", () => {
+  it("falls back to the CALLER's isDir when the destination listing misses the name", async () => {
+    // A folder rename whose destination listing is empty (the fs view lags):
+    // the settle must not flip the folder row into a file row.
+    h.readdir.mockResolvedValueOnce([]);
+    const entry = await actions.rename!(worktree, "/src", "/sources", true);
+    expect(entry).toEqual({ name: "sources", isDir: true });
+  });
+});

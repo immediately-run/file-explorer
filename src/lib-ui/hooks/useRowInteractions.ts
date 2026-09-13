@@ -56,6 +56,27 @@ export interface RowProps {
 }
 
 /**
+ * The keyboard spelling of the row's context menu (ContextMenu key, or
+ * Shift+F10 where keyboards have no menu key) — the ONE handler every layout's
+ * row keydown calls first, so a row's menu actions (delete, rename, move…)
+ * are never pointer-only in any layout. Returns whether the key was consumed.
+ */
+export function openRowMenuKey(
+  e: React.KeyboardEvent,
+  handlers: NodeHandlers,
+  ctx: RowCtx,
+): boolean {
+  if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return false;
+  e.preventDefault();
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  handlers.onMenu(
+    { clientX: r.left + 12, clientY: r.bottom, currentTarget: e.currentTarget },
+    ctx,
+  );
+  return true;
+}
+
+/**
  * Build the gesture props for one row. `longPress` is the pointer bundle from
  * `useLongPress` (the layout creates it so the menu opens at the row, mirroring
  * the tree). Returns `{ dropTarget, rowProps }`.

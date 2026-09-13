@@ -16,8 +16,7 @@ import {
   cancelItemDrag,
   unmountSpace,
 } from "@immediately-run/sdk";
-import { basename, dirOf, joinPath, MAX_UPLOAD_BYTES } from "../explorer";
-import { joinRel } from "../writeFlow";
+import { basename, dirOf, joinPath, joinRel, MAX_UPLOAD_BYTES } from "../explorer";
 import { sdkFsSource } from "./mountFs";
 import type { Entry, ExplorerActions } from "../types";
 
@@ -45,7 +44,7 @@ export function makeSdkActions(): ExplorerActions {
       await createFolder(relPath);
       return { name: basename(relPath), isDir: true } satisfies Entry;
     },
-    rename: async (root, fromRel, toRel) => {
+    rename: async (root, fromRel, toRel, isDir) => {
       await renameEntry(fromRel, toRel);
       const name = basename(toRel);
       const parentAbs = joinRel(root.path, dirOf(toRel));
@@ -56,7 +55,9 @@ export function makeSdkActions(): ExplorerActions {
       } catch {
         /* unreadable listing — the narrow refetch is still the authority */
       }
-      return { name, isDir: false } satisfies Entry;
+      // Degraded settle: the name it asked for, and the caller's own fact
+      // about the row (never a fabricated file).
+      return { name, isDir: isDir ?? false } satisfies Entry;
     },
     delete: async (_root, relPath) => {
       await deleteEntry(relPath);

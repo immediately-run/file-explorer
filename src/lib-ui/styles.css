@@ -690,7 +690,6 @@
 .lrow[aria-selected] .lrow__name .lrow__icon { color: var(--ink-2); }
 .lrow__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lrow__type { width: 35%; color: var(--ink-3); font-size: 11.5px; font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lrow__del { margin-left: 0; }
 @media (hover: hover) { .lrow:hover { background: var(--panel-2); } }
 .lrow:focus-visible { outline: none; box-shadow: var(--glow); }
 .lrow--selected, .lrow--selected:hover { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--accent-pink); }

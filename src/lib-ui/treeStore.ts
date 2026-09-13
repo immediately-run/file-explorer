@@ -385,15 +385,31 @@ export class TreeStore {
   /**
    * Re-read ONE directory in place — the narrow post-write authority refetch
    * (R-IX-4: refetch what changed, not everything that happens to be open).
-   * Settles the write's directory against the authority; pending rows are
-   * dropped for the fresh listing (a still-in-flight write re-inserts nothing —
-   * its settle is the action's return, and a later write re-adds its row).
+   * Settles the write's directory against the authority, EXCEPT rows whose
+   * write is still in flight: a fresh listing cannot know about them, and
+   * wiping them would un-render a change the user just made (R-IX-3) and
+   * orphan its settle. Their settle is the write's own return.
    */
   refreshDir = (p: string): void => {
     void this.fs.readdir(p).then(
       (list) => {
-        this.entries.set(p, list);
-        for (const entry of list) this.pending.delete(`${p}/${entry.name}`);
+        // A fresh listing cannot know about rows whose write is still in
+        // flight — re-insert them (their cached selves, pending treatment
+        // intact) so the refetch never un-renders a change in progress.
+        const cached = this.entries.get(p);
+        let next = list;
+        for (const pendingPath of this.pending) {
+          if (!pendingPath.startsWith(p + "/")) continue;
+          const name = pendingPath.slice(p.length + 1);
+          if (next.some((e) => e.name === name)) continue;
+          const pendingEntry = cached?.find((e) => e.name === name);
+          if (!pendingEntry) continue;
+          if (next === list) next = [...list];
+          let i = next.findIndex((e) => compareEntries(pendingEntry, e, "name") < 0);
+          if (i < 0) i = next.length;
+          next.splice(i, 0, pendingEntry);
+        }
+        this.entries.set(p, next);
         this.errored.delete(p);
         this.emit();
       },

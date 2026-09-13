@@ -26,6 +26,7 @@ export type {
 // Pure helpers (path math, root metadata, drag/move validity).
 export {
   joinPath,
+  joinRel,
   basename,
   dirOf,
   toMountRel,
@@ -65,7 +66,7 @@ export type { SortKey, SortableEntry } from "./entryMeta";
 export { TreeStore, useNode, useSelected, useActive, useDir, usePending, useFocused } from "./treeStore";
 
 // The optimistic write flow (ports + per-op orchestration).
-export { runCreate, runRename, runDelete, runUpload, joinRel, writeError } from "./writeFlow";
+export { runCreate, runRename, runDelete, runUpload, writeError } from "./writeFlow";
 export type { WritePorts } from "./writeFlow";
 
 // The overlay contract hook (dialog + menu focus/Escape/Tab behaviour).

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { chat, uploadFile } from "@immediately-run/sdk";
 import { readFile } from "./mountFs";
 import { dirOf, joinPath, toMountRel } from "../explorer";
+import { announce } from "../announce";
 import { useOverlayFocusDismiss } from "../hooks/useOverlayFocusDismiss";
 import "./SummaryModal.css";
 
@@ -104,11 +105,15 @@ export default function SummaryModal({
     const saveAbs = joinPath(dirOf(target.absPath), `${target.name}.summary.md`);
     const rel = toMountRel(target.rootPath, saveAbs);
     setSaving(true);
+    announce(`Saving summary of ${target.name}…`);
     try {
       await uploadFile(rel, new TextEncoder().encode(text));
       setSaved(rel);
+      announce(`Saved ${rel}.`);
     } catch (e) {
-      setError(`Couldn't save: ${(e as Error)?.message ?? "read-only"}.`);
+      const msg = `Couldn't save: ${(e as Error)?.message ?? "read-only"}.`;
+      setError(msg);
+      announce(msg);
     } finally {
       setSaving(false);
     }
@@ -130,8 +135,10 @@ export default function SummaryModal({
           </code>
         </header>
         <div className="sm-body">
-          {phase === "reading" && <p className="sm-status">Reading file…</p>}
-          {phase === "error" && <p className="sm-status sm-error">{error}</p>}
+          {phase === "reading" && !error && <p className="sm-status">Reading file…</p>}
+          {/* The save failure renders whatever the stream phase is — a failed
+              save is not the stream's error state. */}
+          {error && <p className="sm-status sm-error">{error}</p>}
           {(phase === "streaming" || phase === "done") && (
             <div className="sm-text">
               {text}

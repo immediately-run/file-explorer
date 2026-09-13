@@ -59,8 +59,17 @@ function DirRow({
       e.preventDefault();
       onChoose(path);
       if (!open) store.open(path);
-    } else if (e.key === "ArrowRight" && !open) {
-      store.open(path);
+    } else if (e.key === "ArrowRight") {
+      if (!open) {
+        store.open(path);
+      } else {
+        // Same contract as the main tree: in an open folder, step to the first
+        // child (its rows may still be loading — the move then no-ops).
+        const first = e.currentTarget.parentElement?.querySelector(
+          '[role="group"] [role="treeitem"]',
+        );
+        (first as HTMLElement | null)?.focus();
+      }
     } else if (e.key === "ArrowLeft" && open) {
       store.toggle(path);
     }
@@ -146,18 +155,22 @@ export default function MoveDialog({
 
   return (
     <div className="mv-overlay" onClick={onClose}>
+      {/* The hook's ref bounds the PANEL — the Tab trap must include the
+          footer buttons, or "Move here"/Cancel are keyboard-unreachable. */}
       <div
         className="mv-panel"
         role="dialog"
         aria-modal="true"
         aria-label={`Move ${target.name} to a folder`}
         onClick={(e) => e.stopPropagation()}
+        ref={ref}
+        tabIndex={-1}
       >
         <header className="mv-head">
           <span className="mv-title">Move {target.name}</span>
           <span className="mv-sub">Choose a folder</span>
         </header>
-        <div className="mv-body" ref={ref}>
+        <div className="mv-body">
           <div
             className="mv-trees"
             onKeyDown={(e) => {

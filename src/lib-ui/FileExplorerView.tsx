@@ -65,10 +65,12 @@ import MoveDialog, { type MoveTarget } from "./MoveDialog";
 import { useLongPress } from "./hooks/useLongPress";
 import { useLayout } from "./hooks/useLayout";
 import { rovingTreeFocus } from "./hooks/rovingTreeFocus";
-import { type NodeHandlers } from "./hooks/useRowInteractions";
-import { joinRel, runCreate, runDelete, runRename, runUpload, type WritePorts } from "./writeFlow";
+import { type NodeHandlers, openRowMenuKey } from "./hooks/useRowInteractions";
+import { runCreate, runDelete, runRename, runUpload, type WritePorts } from "./writeFlow";
+import { announce as announceMessage, subscribeToAnnouncements } from "./announce";
 import {
   joinPath,
+  joinRel,
   basename,
   dirOf,
   toMountRel,
@@ -235,6 +237,7 @@ const TreeNode = memo(function TreeNode({
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (openRowMenuKey(e, handlers, rowCtx)) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       handlers.onActivate(path, isDir);
@@ -257,13 +260,6 @@ const TreeNode = memo(function TreeNode({
         const group = e.currentTarget.closest('ul[role="group"]');
         (group?.previousElementSibling as HTMLElement | null)?.focus();
       }
-    } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
-      e.preventDefault();
-      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      handlers.onMenu(
-        { clientX: r.left + 12, clientY: r.bottom, currentTarget: e.currentTarget },
-        rowCtx,
-      );
     }
   };
 
@@ -624,9 +620,11 @@ function FileExplorerView({
   // "Move to…" picker target (the non-drag move path, WCAG 2.5.7).
   const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   // The ONE live region (R-IX-7): pending and settled states are announced
-  // here, never scattered per component.
+  // here, never scattered per component. The region's message comes from the
+  // announcement channel (announce.ts), so the view's own writes AND sibling
+  // overlays (the summarize modal) reach the same single region.
   const [statusMsg, setStatusMsg] = useState("");
-  const announce = useCallback((message: string) => setStatusMsg(message), []);
+  useEffect(() => subscribeToAnnouncements(setStatusMsg), []);
   // Inline prompt for create / rename: a single targeted input.
   const [prompt, setPrompt] = useState<
     | {
@@ -885,11 +883,11 @@ function FileExplorerView({
     () => ({
       store,
       actions: actions ?? ({} as ExplorerActions),
-      announce,
+      announce: announceMessage,
       fail: (message: string) => setError(message),
       begin: () => setError(null),
     }),
-    [store, actions, announce],
+    [store, actions],
   );
 
   // --- stable node handlers (so the memoized tree doesn't re-render) ---

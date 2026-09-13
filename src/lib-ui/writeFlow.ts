@@ -8,7 +8,7 @@
 //
 // Framework-free (R13): the view supplies the ports; tests drive these
 // functions directly against a real TreeStore + fixture fs.
-import { basename, dirOf, toMountRel, WRITE_ERR } from "./explorer";
+import { basename, dirOf, joinRel, toMountRel, WRITE_ERR } from "./explorer";
 import type { TreeStore } from "./treeStore";
 import type { DirEntry, ExplorerActions, ExplorerRoot } from "./types";
 
@@ -98,7 +98,7 @@ export function runRename(
   );
   void (async () => {
     try {
-      const settled = await rename(root, toMountRel(root.path, fromAbs), toRel);
+      const settled = await rename(root, toMountRel(root.path, fromAbs), toRel, entry.isDir);
       if (!settled) {
         ports.store.removeEntry(toDirAbs, toName);
         ports.store.insertEntry(fromDirAbs, entry);
@@ -182,9 +182,3 @@ export function runUpload(
     }
   })();
 }
-
-/** Absolute path of a mount-relative dir under `rootPath` ("/x" → "/root/x"). */
-export const joinRel = (rootPath: string, relDir: string): string => {
-  const trimmed = relDir.replace(/^\/+|\/+$/g, "");
-  return trimmed ? `${rootPath.replace(/\/+$/, "")}/${trimmed}` : rootPath.replace(/\/+$/, "");
-};

@@ -72,7 +72,15 @@ export interface ExplorerActions {
   open?(root: ExplorerRoot, relPath: string): void;
   createFile?(root: ExplorerRoot, relPath: string): Promise<Entry | null>;
   createFolder?(root: ExplorerRoot, relPath: string): Promise<Entry | null>;
-  rename?(root: ExplorerRoot, fromRel: string, toRel: string): Promise<Entry | null>;
+  rename?(
+    root: ExplorerRoot,
+    fromRel: string,
+    toRel: string,
+    /** The caller's knowledge of the moved row (it rendered it). The adapter
+     *  uses it only when the destination listing can't be read, so a degraded
+     *  settle never flips a folder row into a file row. */
+    isDir?: boolean,
+  ): Promise<Entry | null>;
   delete?(root: ExplorerRoot, relPath: string): Promise<string>;
   upload?(root: ExplorerRoot, dirRel: string, files: File[]): Promise<void>;
   beginDragOut?(root: ExplorerRoot, relPath: string, isDir: boolean): void;

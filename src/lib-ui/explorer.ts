@@ -25,6 +25,13 @@ export const dirOf = (p: string): string => {
 export const toMountRel = (rootPath: string, absPath: string): string =>
   absPath.slice(rootPath.replace(/\/+$/, "").length) || "/";
 
+/** The inverse of {@link toMountRel}: a mount-relative dir ("/src") made
+ *  absolute under `rootPath` ("<root>/src"); "/" maps to the root itself. */
+export const joinRel = (rootPath: string, relDir: string): string => {
+  const normalized = normalizeRel(relDir);
+  return normalized === "/" ? rootPath.replace(/\/+$/, "") : joinPath(rootPath, normalized.slice(1));
+};
+
 // ---------------------------------------------------------------------------
 // Root metadata (R3-79 / FILE_EXPLORER_SPEC §2) — over the generalized
 // ExplorerRoot. The SDK adapter populates these fields from a SandboxMount; the
