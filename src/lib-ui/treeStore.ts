@@ -19,6 +19,7 @@
 // Each node subscribes to ONLY its own slice via `useSyncExternalStore`, so a
 // toggle or a selection re-renders just the affected rows, never the tree.
 import { useEffect, useSyncExternalStore } from "react";
+import { compareEntries } from "./entryMeta";
 import type { DirEntry, FsSource } from "./types";
 
 export class TreeStore {
@@ -27,6 +28,14 @@ export class TreeStore {
   private errored = new Set<string>();
   private inflight = new Set<string>();
   private selected: string | null = null;
+  // Optimistically inserted rows whose write has not settled yet (absolute
+  // paths). A pending row renders in a pending treatment; the write's own
+  // return settles it (R-IX-3/R-IX-4) — never a blanket refetch.
+  private pending = new Set<string>();
+  // The last-focused row (absolute path), shared by every layout — the roving
+  // tab stop. Null until a row takes focus; each tree then keeps its tab stop
+  // on its root row.
+  private focused: string | null = null;
   // A multi-select SET (absolute paths), DISTINCT from `selected` (the single
   // cursor / active-open path). Used by a batch consumer (file-commander) under
   // `selectionMode === "multi"`: a row click toggles membership here rather than
@@ -100,7 +109,9 @@ export class TreeStore {
     for (const p of [...this.expanded]) if (under(p)) this.expanded.delete(p);
     for (const p of [...this.entries.keys()]) if (under(p)) this.entries.delete(p);
     for (const p of [...this.errored]) if (under(p)) this.errored.delete(p);
+    for (const p of [...this.pending]) if (under(p)) this.pending.delete(p);
     if (this.selected && under(this.selected)) this.selected = null;
+    if (this.focused && under(this.focused)) this.focused = null;
     let dropped = false;
     for (const p of [...this.selection]) {
       if (under(p)) {
@@ -136,6 +147,14 @@ export class TreeStore {
   isViewed = (repoRel: string): boolean => this.viewedFile === repoRel;
   /** The stage's viewed-document hint, mount-relative (or null — no hint). */
   getViewedFile = (): string | null => this.viewedFile;
+  /** Is the row at absolute `p` a write in flight (optimistically inserted)? */
+  isPending = (p: string): boolean => this.pending.has(p);
+  /** The last-focused row's absolute path (the roving tab stop), or null. */
+  getFocused = (): string | null => this.focused;
+  /** Does any focused row sit inside the tree rooted at `rootPath`? */
+  isFocusInTree = (rootPath: string): boolean =>
+    this.focused !== null &&
+    (this.focused === rootPath || this.focused.startsWith(rootPath + "/"));
   /** Is `repoRel` (a DIRECTORY, mount-relative) an ancestor of the viewed
    *  document? Drives the collapsed-folder "contains the on-stage file" dot —
    *  a corpus under a chroot subdir stays discoverable while the tree itself is
@@ -157,8 +176,16 @@ export class TreeStore {
 
   // --- mutations (called from handlers / effects, never during render) ---
   toggle = (p: string): void => {
-    if (this.expanded.has(p)) this.expanded.delete(p);
-    else this.expanded.add(p);
+    if (this.expanded.has(p)) {
+      this.expanded.delete(p);
+      // The rows underneath are about to unmount — a focus pointing at one of
+      // them would leave its tree with no tab stop. Hand it to the folder.
+      if (this.focused !== null && this.focused !== p && this.focused.startsWith(p + "/")) {
+        this.focused = p;
+      }
+    } else {
+      this.expanded.add(p);
+    }
     this.emit();
   };
 
@@ -195,6 +222,78 @@ export class TreeStore {
   select = (p: string): void => {
     if (this.selected === p) return;
     this.selected = p;
+    this.emit();
+  };
+
+  /** Record the focused row (absolute path) — moves the roving tab stop. */
+  setFocus = (p: string | null): void => {
+    if (this.focused === p) return;
+    this.focused = p;
+    this.emit();
+  };
+
+  // --- optimistic write mutations (called by the write flow, never render) ---
+  // Every mutation replaces the directory's array (never mutates it in place)
+  // so `getEntries` snapshots change identity and `useSyncExternalStore` sees
+  // the update.
+
+  /** Insert `entry` into `dir`'s cached listing at its final (sorted)
+   *  position. A directory whose listing is not loaded yet (collapsed,
+   *  never read) is left alone — nothing renders there until it loads, and
+   *  the post-settle `refreshDir` is the authority. */
+  private sortedInsert = (dir: string, entry: DirEntry, asPending: boolean): void => {
+    const list = this.entries.get(dir);
+    if (!list) return;
+    const next = [...list];
+    let i = next.findIndex((e) => compareEntries(entry, e, "name") < 0);
+    if (i < 0) i = next.length;
+    next.splice(i, 0, entry);
+    this.entries.set(dir, next);
+    if (asPending) this.pending.add(`${dir}/${entry.name}`);
+    this.emit();
+  };
+
+  /** Insert an entry that is NOT yet real — the row the user just asked for,
+   *  rendered immediately at its final position in a pending treatment
+   *  (R-IX-3). The write's own return settles it via {@link settleEntry}. */
+  insertPending = (dir: string, entry: DirEntry): void => {
+    this.sortedInsert(dir, entry, true);
+  };
+
+  /** Insert (or restore, after a failed write) a real entry. */
+  insertEntry = (dir: string, entry: DirEntry): void => {
+    this.sortedInsert(dir, entry, false);
+  };
+
+  /** Replace the pending row `pendingName` in `dir` with the authoritative
+   *  `entry` the write returned — the settle, with no read at all (R-IX-4). */
+  settleEntry = (dir: string, pendingName: string, entry: DirEntry): void => {
+    const list = this.entries.get(dir);
+    this.pending.delete(`${dir}/${pendingName}`);
+    if (!list) return;
+    const i = list.findIndex((e) => e.name === pendingName);
+    if (i < 0) return;
+    const next = [...list];
+    next[i] = entry;
+    // The authority may have normalized the name; keep the listing sorted.
+    next.sort((a, b) => compareEntries(a, b, "name"));
+    this.entries.set(dir, next);
+    this.emit();
+  };
+
+  /** Drop `name` from `dir`'s cached listing (an optimistic remove, or the
+   *  cleanup of a pending row). No-op when the listing is not loaded. */
+  removeEntry = (dir: string, name: string): void => {
+    const gone = `${dir}/${name}`;
+    const list = this.entries.get(dir);
+    this.pending.delete(gone);
+    if (this.focused === gone) this.focused = null;
+    if (!list) return;
+    const i = list.findIndex((e) => e.name === name);
+    if (i < 0) return;
+    const next = [...list];
+    next.splice(i, 1);
+    this.entries.set(dir, next);
     this.emit();
   };
 
@@ -261,9 +360,11 @@ export class TreeStore {
   };
 
   /**
-   * Re-read every currently-open directory in place (after a create/delete/upload/
-   * move). Stale content stays visible until fresh entries land — no spinner flash —
-   * and expansion/selection are untouched.
+   * Re-read every currently-open directory in place — the EXPLICIT reload
+   * (layout switches, a consumer's "refresh" affordance). The post-write path
+   * does NOT use this; it settles from the write's return and then calls the
+   * narrow {@link refreshDir}. Stale content stays visible until fresh entries
+   * land — no spinner flash — and expansion/selection are untouched.
    */
   refresh = (): void => {
     for (const p of [...this.expanded]) {
@@ -279,6 +380,28 @@ export class TreeStore {
         },
       );
     }
+  }
+
+  /**
+   * Re-read ONE directory in place — the narrow post-write authority refetch
+   * (R-IX-4: refetch what changed, not everything that happens to be open).
+   * Settles the write's directory against the authority; pending rows are
+   * dropped for the fresh listing (a still-in-flight write re-inserts nothing —
+   * its settle is the action's return, and a later write re-adds its row).
+   */
+  refreshDir = (p: string): void => {
+    void this.fs.readdir(p).then(
+      (list) => {
+        this.entries.set(p, list);
+        for (const entry of list) this.pending.delete(`${p}/${entry.name}`);
+        this.errored.delete(p);
+        this.emit();
+      },
+      () => {
+        this.errored.add(p);
+        this.emit();
+      },
+    );
   };
 }
 
@@ -330,6 +453,30 @@ export function useViewedAncestor(store: TreeStore, repoRel: string): boolean {
  *  file (the collapsed-ancestor dot). Same per-row shape as {@link useActive}. */
 export function useActiveAncestor(store: TreeStore, repoRel: string): boolean {
   return useSyncExternalStore(store.subscribe, () => store.isActiveAncestor(repoRel));
+}
+
+/** Subscribe a row to whether its write is still in flight (the pending
+ *  treatment). Keyed by absolute path so a settle re-renders one row. */
+export function usePending(store: TreeStore, path: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => store.isPending(path));
+}
+
+/** Subscribe to the shared focused row (the roving tab stop). */
+export function useFocused(store: TreeStore): string | null {
+  return useSyncExternalStore(store.subscribe, store.getFocused);
+}
+
+/** Subscribe a row to ONLY whether IT holds the roving tab stop — a boolean
+ *  slice, so a focus move re-renders the two rows whose slice flipped, not
+ *  every row (the string selector above re-renders all of its subscribers). */
+export function useRowFocused(store: TreeStore, path: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => store.getFocused() === path);
+}
+
+/** Subscribe a tree to whether its roving tab stop lives on the root row (no
+ *  row of this tree holds focus — some other tree, or nothing, does). */
+export function useTreeUnfocused(store: TreeStore, rootPath: string): boolean {
+  return useSyncExternalStore(store.subscribe, () => !store.isFocusInTree(rootPath));
 }
 
 /**

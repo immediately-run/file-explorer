@@ -14,6 +14,7 @@ export type { NodeHandlers, RowProps } from "./hooks/useRowInteractions";
 export type {
   ExplorerRoot,
   DirEntry,
+  Entry,
   FsSource,
   ExplorerActions,
   Layout,
@@ -61,7 +62,14 @@ export { extOf, fileTypeLabel, compareEntries } from "./entryMeta";
 export type { SortKey, SortableEntry } from "./entryMeta";
 
 // The path-keyed tree store + its per-slice subscription hooks.
-export { TreeStore, useNode, useSelected, useActive, useDir } from "./treeStore";
+export { TreeStore, useNode, useSelected, useActive, useDir, usePending, useFocused } from "./treeStore";
+
+// The optimistic write flow (ports + per-op orchestration).
+export { runCreate, runRename, runDelete, runUpload, joinRel, writeError } from "./writeFlow";
+export type { WritePorts } from "./writeFlow";
+
+// The overlay contract hook (dialog + menu focus/Escape/Tab behaviour).
+export { useOverlayFocusDismiss } from "./hooks/useOverlayFocusDismiss";
 
 // Presentational pieces + the layouts.
 export { default as ContextMenu } from "./ContextMenu";
