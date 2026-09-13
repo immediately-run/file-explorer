@@ -334,6 +334,19 @@ describe("R3-80 — context menu", () => {
     confirm.mockRestore();
   });
 
+  // The confirm is the only thing between a click and a lost file, and the row's
+  // disappearance is the user's evidence the delete happened. Cancelling must
+  // therefore change nothing at all — no intent, and the row still there. Asserted
+  // because it was reached for by hand (2026-09-13) and had no guard.
+  it("cancelling the delete confirm removes nothing and leaves the row in place", async () => {
+    await renderWithSrcExpanded();
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    fireEvent.click(screen.getByRole("button", { name: "Delete index.ts", hidden: true }));
+    expect(h.deleteEntry).not.toHaveBeenCalled();
+    expect(screen.getByRole("treeitem", { name: "index.ts" })).toBeInTheDocument();
+    confirm.mockRestore();
+  });
+
   it("a read-only space file's menu offers only Open (no write actions)", async () => {
     h.mounts = [space()];
     render(<FileExplorer />);
