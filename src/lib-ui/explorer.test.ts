@@ -16,6 +16,7 @@ import {
   mountScopes,
   orderMounts,
   moveRejection,
+  uploadTargetDir,
 } from "./explorer";
 import type { ExplorerRoot } from "./types";
 
@@ -124,5 +125,21 @@ describe("moveRejection (R3-81)", () => {
   });
   it("rejects a cross-mount move", () => {
     expect(moveRejection("/mnt/abc/a.ts", "/spaces/1/x", root, "/spaces/1")).toBe("cross-mount");
+  });
+});
+
+describe("uploadTargetDir (R3-82 §5)", () => {
+  const root = "/mnt/abc";
+  it("a directory row is its own target", () => {
+    expect(uploadTargetDir({ path: "/mnt/abc/src", isDir: true }, root)).toBe("/mnt/abc/src");
+  });
+  it("a file row resolves to the directory holding it", () => {
+    expect(uploadTargetDir({ path: "/mnt/abc/src/index.ts", isDir: false }, root)).toBe("/mnt/abc/src");
+  });
+  it("a file at the scope root resolves to the scope root", () => {
+    expect(uploadTargetDir({ path: "/mnt/abc/README.md", isDir: false }, root)).toBe(root);
+  });
+  it("a drop that hits no row at all is the scope root", () => {
+    expect(uploadTargetDir(null, root)).toBe(root);
   });
 });

@@ -252,8 +252,10 @@
   .tnode__del:hover { color: var(--accent-pink); background: var(--panel-2); }
 }
 
-/* Drag-and-drop upload highlight. */
-.panel__body[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
+/* Drag-and-drop upload highlight — the SCOPE, not the whole panel, so the
+   destination of a drop that missed a directory row is unambiguous
+   (FILE_EXPLORER_SPEC §5). A directory row lights `.tnode--droptarget` instead. */
+.mount[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
 
 /* A directory row that is a live drop target (internal move R3-81 / upload R3-82). */
 .tnode--droptarget,

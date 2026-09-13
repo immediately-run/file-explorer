@@ -463,6 +463,60 @@ describe("R3-82 — drag local files to upload into a directory", () => {
     await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
     expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
   });
+
+  // §5: "or the scope root if dropped on empty space within a scope". These two
+  // drops were silent no-ops — the whole of the panel except a directory row was
+  // dead to an OS drag.
+  it("dropping on the scope's blank space uploads into the scope root", async () => {
+    await renderWithSrcExpanded();
+    const scope = screen.getByText("src").closest(".mount") as HTMLElement;
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.drop(scope, { dataTransfer: dataTransfer({ files: [file] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/note.txt");
+  });
+
+  it("dropping onto a file row uploads into that file's directory", async () => {
+    await renderWithSrcExpanded();
+    const fileRow = screen.getByText("index.ts").closest(".tnode") as HTMLElement;
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.drop(fileRow, { dataTransfer: dataTransfer({ files: [file] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("a directory row's drop is not also handled by the scope", async () => {
+    await renderWithSrcExpanded();
+    const srcRow = screen.getByText("src").closest(".tnode") as HTMLElement;
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.drop(srcRow, { dataTransfer: dataTransfer({ files: [file] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile).toHaveBeenCalledTimes(1);
+  });
+
+  it("the scope lights its drop affordance while OS files are dragged over it", async () => {
+    await renderWithSrcExpanded();
+    const scope = screen.getByText("src").closest(".mount") as HTMLElement;
+    expect(scope.getAttribute("data-drag")).toBe(null);
+    fireEvent.dragOver(scope, { dataTransfer: dataTransfer({ files: [new File(["x"], "x.txt")] }) });
+    expect(scope.getAttribute("data-drag")).toBe("1");
+    fireEvent.dragLeave(scope, { relatedTarget: document.body });
+    expect(scope.getAttribute("data-drag")).toBe(null);
+  });
+
+  it("an internal move dragged over blank space is not taken by the scope", async () => {
+    await renderWithSrcExpanded();
+    const scope = screen.getByText("src").closest(".mount") as HTMLElement;
+    fireEvent.dragOver(scope, {
+      dataTransfer: dataTransfer({ move: JSON.stringify({ from: "/README.md", rootPath: "/mnt/abc" }) }),
+    });
+    expect(scope.getAttribute("data-drag")).toBe(null);
+    fireEvent.drop(scope, {
+      dataTransfer: dataTransfer({ move: JSON.stringify({ from: "/README.md", rootPath: "/mnt/abc" }) }),
+    });
+    expect(h.renameEntry).not.toHaveBeenCalled();
+    expect(h.uploadFile).not.toHaveBeenCalled();
+  });
 });
 
 // --- R3-83: drag-out source -------------------------------------------------

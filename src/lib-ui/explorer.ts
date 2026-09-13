@@ -217,6 +217,20 @@ export const moveRejection = (
   return null;
 };
 
+/**
+ * Where an OS-file drop lands (`FILE_EXPLORER_SPEC §5`): the directory row under
+ * the pointer, the PARENT of a file row, or the scope root when the drop misses
+ * every row — a drop on the blank space below the tree, or on the scope header.
+ *
+ * `row` is what the drop point resolves to, or `null` when it resolves to nothing.
+ * Directory rows answer this for themselves before the event reaches a container,
+ * so in practice this decides the two cases that used to be silent no-ops.
+ */
+export const uploadTargetDir = (
+  row: { path: string; isDir: boolean } | null,
+  scopeRoot: string,
+): string => (row ? (row.isDir ? row.path : dirOf(row.path)) : scopeRoot);
+
 /** A soft client cap on inlined upload/drag bytes; the host enforces the real one. */
 export const MAX_UPLOAD_BYTES = 512 * 1024;
 
