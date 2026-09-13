@@ -70,6 +70,7 @@ import {
   isProtected,
   orderMounts,
   moveRejection,
+  uploadTargetDir,
   MOVE_MIME,
   WRITE_ERR,
 } from "./explorer";
@@ -312,6 +313,7 @@ const TreeNode = memo(function TreeNode({
         onPointerUp={longPress.onPointerUp}
         onPointerCancel={longPress.onPointerCancel}
         data-dir={isDir ? "1" : "0"}
+        data-path={path}
         aria-current={active ? "true" : undefined}
       >
         <span className="tnode__icon">
@@ -461,8 +463,48 @@ const Scope = memo(function Scope({
   const label = mountLabel(root);
   const scopes = mountScopes(root);
   const TypeIcon = MOUNT_ICON[mountKind(root)];
+
+  // The scope is the drop target for every OS-file drop a directory row does not
+  // take (§5: "or the scope root if dropped on empty space within a scope") — the
+  // blank space below the tree, the scope header, and file rows, which resolve to
+  // their parent directory. A directory row stops propagation, so it is never this
+  // handler's business and the two affordances never light at once. Internal moves
+  // (MOVE_MIME) are deliberately NOT accepted here: a move needs a real directory,
+  // and `moveRejection` is the rows' to apply.
+  const [dragging, setDragging] = useState(false);
+  const acceptsUpload = (e: React.DragEvent) => writable && e.dataTransfer.types.includes("Files");
+  const onScopeDragOver = (e: React.DragEvent) => {
+    if (!acceptsUpload(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setDragging(true);
+  };
+  const onScopeDragLeave = (e: React.DragEvent) => {
+    // `dragleave` fires when crossing between children too; only a pointer that has
+    // actually left the scope clears the affordance.
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+  };
+  const onScopeDrop = (e: React.DragEvent) => {
+    if (!acceptsUpload(e)) return;
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    e.preventDefault();
+    setDragging(false);
+    const el = (e.target as HTMLElement).closest?.("[data-path]") ?? null;
+    const row = el
+      ? { path: el.getAttribute("data-path") ?? root.path, isDir: el.getAttribute("data-dir") === "1" }
+      : null;
+    handlers.onUploadDrop(files, uploadTargetDir(row, root.path), writable);
+  };
+
   return (
-    <div className="mount">
+    <div
+      className="mount"
+      data-drag={dragging ? "1" : undefined}
+      onDragOver={onScopeDragOver}
+      onDragLeave={onScopeDragLeave}
+      onDrop={onScopeDrop}
+    >
       <div className="scope">
         <div className="scope__head">
           <TypeIcon className="scope__icon" size={13} aria-hidden="true" />
