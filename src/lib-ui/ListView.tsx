@@ -3,16 +3,17 @@
 // (the "Mounts" root lists the mounts; opening one drills in). Shares the tree's
 // selection + active-file model and the §3/§4 gestures (context menu, move,
 // upload, drag-out, delete) via `useRowInteractions`. ARIA: a `listbox` of
-// `option` rows; arrow keys roam the rows.
+// `option` rows with a ROVING tab stop (the focused row, else the selected,
+// else the first); arrow keys move the rows.
 import { memo, useMemo, useRef, useState } from "react";
-import { Trash2, Play } from "lucide-react";
-import { TreeStore, useSelected, useInSelection, useViewed } from "./treeStore";
+import { Play } from "lucide-react";
+import { TreeStore, useSelected, useInSelection, useViewed, useFocused } from "./treeStore";
 import FileGlyph from "./FileGlyph";
 import Breadcrumb from "./Breadcrumb";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
 import { useLongPress } from "./hooks/useLongPress";
-import { useRowInteractions, type NodeHandlers } from "./hooks/useRowInteractions";
-import { breadcrumbFor, toMountRel, isProtected } from "./explorer";
+import { useRowInteractions, openRowMenuKey, type NodeHandlers } from "./hooks/useRowInteractions";
+import { breadcrumbFor, toMountRel } from "./explorer";
 import { fileTypeLabel, compareEntries, type SortKey } from "./entryMeta";
 import type { ExplorerRoot } from "./types";
 
@@ -22,6 +23,7 @@ const ListRow = memo(function ListRow({
   multi,
   cursorSelected,
   active,
+  tabStop,
   onOpen,
   handlers,
 }: {
@@ -30,6 +32,9 @@ const ListRow = memo(function ListRow({
   multi: boolean;
   cursorSelected: boolean;
   active: boolean;
+  /** This row is the listbox's single tab stop (APG Listbox: roving tabindex —
+   *  the focused row, else the selected, else the first). */
+  tabStop: boolean;
   onOpen: (row: BrowseRow) => void;
   handlers: NodeHandlers;
 }) {
@@ -46,14 +51,14 @@ const ListRow = memo(function ListRow({
   // tree's, so a navigation re-renders only the affected rows.
   const viewedMatch = useViewed(store, mountRel);
   const viewed = !ctx.isDir && viewedMatch;
-  const deletable = ctx.writable && ctx.absPath !== ctx.rootPath && !isProtected(mountRel);
 
   return (
     <div
       role="option"
       aria-selected={selected}
       aria-current={active ? "true" : undefined}
-      tabIndex={0}
+      tabIndex={tabStop ? 0 : -1}
+      onFocus={() => store.setFocus(ctx.absPath)}
       className={
         "lrow" +
         (selected ? " lrow--selected" : "") +
@@ -63,6 +68,7 @@ const ListRow = memo(function ListRow({
       }
       onClick={() => onOpen(row)}
       onKeyDown={(e) => {
+        if (openRowMenuKey(e, handlers, ctx)) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen(row);
@@ -87,20 +93,6 @@ const ListRow = memo(function ListRow({
         )}
       </span>
       <span className="lrow__type">{fileTypeLabel(name, ctx.isDir)}</span>
-      {deletable && (
-        <button
-          type="button"
-          className="tnode__del lrow__del"
-          aria-label={`Delete ${name}`}
-          title={`Delete ${name}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            handlers.onDelete(ctx.absPath, ctx.isDir, ctx.rootPath);
-          }}
-        >
-          <Trash2 size={13} aria-hidden="true" />
-        </button>
-      )}
     </div>
   );
 });
@@ -124,6 +116,7 @@ function ListView({
 }) {
   const multi = selectionMode === "multi";
   const selectedPath = useSelected(store);
+  const focusedPath = useFocused(store);
   const { mount, rows, loading, errored, empty } = useBrowse(store, cwd, ordered);
   const { crumbs } = useMemo(() => breadcrumbFor(cwd, ordered), [cwd, ordered]);
   const [sort, setSort] = useState<SortKey>("name");
@@ -186,6 +179,14 @@ function ListView({
         {empty && <div className="layout__muted">Empty</div>}
         {sorted.map((row) => {
           const mountRel = toMountRel(row.ctx.rootPath, row.ctx.absPath);
+          // One tab stop: the focused row; when nothing here holds focus, the
+          // selected row; failing that, the first.
+          const stopAbs =
+            sorted.some((r) => r.ctx.absPath === focusedPath)
+              ? focusedPath
+              : (sorted.find((r) => r.ctx.absPath === selectedPath)?.ctx.absPath ??
+                sorted[0]?.ctx.absPath ??
+                null);
           return (
             <ListRow
               key={row.ctx.absPath}
@@ -194,6 +195,7 @@ function ListView({
               multi={multi}
               cursorSelected={selectedPath === row.ctx.absPath}
               active={!row.ctx.isDir && mountRel === activeFile}
+              tabStop={row.ctx.absPath === stopAbs}
               onOpen={onOpen}
               handlers={handlers}
             />

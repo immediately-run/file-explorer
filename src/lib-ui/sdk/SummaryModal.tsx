@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { chat, uploadFile } from "@immediately-run/sdk";
 import { readFile } from "./mountFs";
 import { dirOf, joinPath, toMountRel } from "../explorer";
+import { announce } from "../announce";
+import { useOverlayFocusDismiss } from "../hooks/useOverlayFocusDismiss";
 import "./SummaryModal.css";
 
 /** The file to summarize, in the explorer's absolute-path space. */
@@ -39,7 +41,11 @@ export default function SummaryModal({
   const [phase, setPhase] = useState<Phase>("reading");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const startedRef = useRef(false);
+  // The dialog contract (R-IX-1): focus moves in on open, Tab is trapped,
+  // Escape closes, and focus returns to the invoker. The ref bounds the panel.
+  const panelRef = useOverlayFocusDismiss<HTMLDivElement>(true, onClose);
 
   useEffect(() => {
     if (startedRef.current) return; // run the stream once (StrictMode double-mount safe)
@@ -95,13 +101,21 @@ export default function SummaryModal({
   }, [target]);
 
   const save = async () => {
+    if (saving) return;
     const saveAbs = joinPath(dirOf(target.absPath), `${target.name}.summary.md`);
     const rel = toMountRel(target.rootPath, saveAbs);
+    setSaving(true);
+    announce(`Saving summary of ${target.name}…`);
     try {
       await uploadFile(rel, new TextEncoder().encode(text));
       setSaved(rel);
+      announce(`Saved ${rel}.`);
     } catch (e) {
-      setError(`Couldn't save: ${(e as Error)?.message ?? "read-only"}.`);
+      const msg = `Couldn't save: ${(e as Error)?.message ?? "read-only"}.`;
+      setError(msg);
+      announce(msg);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -113,7 +127,7 @@ export default function SummaryModal({
       aria-label={`Summary of ${target.name}`}
       onClick={onClose}
     >
-      <div className="sm-panel" onClick={(e) => e.stopPropagation()}>
+      <div className="sm-panel" onClick={(e) => e.stopPropagation()} ref={panelRef} tabIndex={-1}>
         <header className="sm-head">
           <span className="sm-title grad-text">Summary</span>
           <code className="sm-file" title={target.absPath}>
@@ -121,8 +135,10 @@ export default function SummaryModal({
           </code>
         </header>
         <div className="sm-body">
-          {phase === "reading" && <p className="sm-status">Reading file…</p>}
-          {phase === "error" && <p className="sm-status sm-error">{error}</p>}
+          {phase === "reading" && !error && <p className="sm-status">Reading file…</p>}
+          {/* The save failure renders whatever the stream phase is — a failed
+              save is not the stream's error state. */}
+          {error && <p className="sm-status sm-error">{error}</p>}
           {(phase === "streaming" || phase === "done") && (
             <div className="sm-text">
               {text}
@@ -134,8 +150,8 @@ export default function SummaryModal({
           {saved ? <span className="sm-saved">Saved {saved}.</span> : <span />}
           <div className="sm-actions">
             {target.writable && phase === "done" && !saved && (
-              <button type="button" className="sm-btn" onClick={save}>
-                Save summary
+              <button type="button" className="sm-btn" onClick={save} disabled={saving}>
+                {saving ? "Saving…" : "Save summary"}
               </button>
             )}
             <button type="button" className="sm-btn sm-primary" onClick={onClose}>

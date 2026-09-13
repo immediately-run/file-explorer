@@ -16,9 +16,9 @@ import {
   cancelItemDrag,
   unmountSpace,
 } from "@immediately-run/sdk";
-import { basename, joinPath, MAX_UPLOAD_BYTES } from "../explorer";
+import { basename, dirOf, joinPath, joinRel, MAX_UPLOAD_BYTES } from "../explorer";
 import { sdkFsSource } from "./mountFs";
-import type { ExplorerActions } from "../types";
+import type { Entry, ExplorerActions } from "../types";
 
 /** Build the SDK-backed action bundle for the shipped file-explorer app. */
 export function makeSdkActions(): ExplorerActions {
@@ -30,18 +30,38 @@ export function makeSdkActions(): ExplorerActions {
     },
 
     // Create / rename / delete: the app NAMES a mount-relative path; the host
-    // performs the COW write behind `editor:write`. Rejections flow to runWrite.
+    // performs the COW write behind `editor:write`. Each write resolves the
+    // entry it produced (the caller renders and settles the write's own
+    // result — R-IX-4); rejections flow to the view's write flow. `rename`
+    // derives the settled entry from the destination listing — the authority's
+    // own answer, including whether the moved thing is a folder — and degrades
+    // to the name it asked for if the listing can't be read.
     createFile: async (_root, relPath) => {
       await createFile(relPath);
+      return { name: basename(relPath), isDir: false } satisfies Entry;
     },
     createFolder: async (_root, relPath) => {
       await createFolder(relPath);
+      return { name: basename(relPath), isDir: true } satisfies Entry;
     },
-    rename: async (_root, fromRel, toRel) => {
+    rename: async (root, fromRel, toRel, isDir) => {
       await renameEntry(fromRel, toRel);
+      const name = basename(toRel);
+      const parentAbs = joinRel(root.path, dirOf(toRel));
+      try {
+        const list = await sdkFsSource.readdir(parentAbs);
+        const hit = list.find((e) => e.name === name);
+        if (hit) return hit;
+      } catch {
+        /* unreadable listing — the narrow refetch is still the authority */
+      }
+      // Degraded settle: the name it asked for, and the caller's own fact
+      // about the row (never a fabricated file).
+      return { name, isDir: isDir ?? false } satisfies Entry;
     },
     delete: async (_root, relPath) => {
       await deleteEntry(relPath);
+      return relPath;
     },
 
     // R3-82 upload: inline each file's bytes; a per-file soft cap throws `too-large`

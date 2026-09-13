@@ -42,6 +42,14 @@ export interface DirEntry {
 }
 
 /**
+ * The result of a successful write, in the same shape a read produces — the
+ * authority's own answer for the thing that now exists at the path the caller
+ * asked for. An alias (not a second shape) so the write contract can never
+ * drift from the read contract.
+ */
+export type Entry = DirEntry;
+
+/**
  * How the component reads bytes/entries. The default adapter is the ZenFS
  * `mountFs`; file-commander supplies its in-memory fs; a test supplies a fake.
  */
@@ -54,13 +62,26 @@ export interface FsSource {
  * Optional privileged operations. An affordance renders ONLY when its action is
  * provided AND the row permits it (writable, not protected). A missing action =>
  * the affordance is absent (never a disabled button that returns `forbidden`).
+ *
+ * The write actions return the entry they produced (null only when the user
+ * cancelled), so the caller can render and settle the write's own result without
+ * waiting on a refetch (R-IX-4). `delete` resolves the removed path (for undo);
+ * `upload` writes a batch whose result is not one entry, so it stays void.
  */
 export interface ExplorerActions {
   open?(root: ExplorerRoot, relPath: string): void;
-  createFile?(root: ExplorerRoot, relPath: string): Promise<void>;
-  createFolder?(root: ExplorerRoot, relPath: string): Promise<void>;
-  rename?(root: ExplorerRoot, fromRel: string, toRel: string): Promise<void>;
-  delete?(root: ExplorerRoot, relPath: string): Promise<void>;
+  createFile?(root: ExplorerRoot, relPath: string): Promise<Entry | null>;
+  createFolder?(root: ExplorerRoot, relPath: string): Promise<Entry | null>;
+  rename?(
+    root: ExplorerRoot,
+    fromRel: string,
+    toRel: string,
+    /** The caller's knowledge of the moved row (it rendered it). The adapter
+     *  uses it only when the destination listing can't be read, so a degraded
+     *  settle never flips a folder row into a file row. */
+    isDir?: boolean,
+  ): Promise<Entry | null>;
+  delete?(root: ExplorerRoot, relPath: string): Promise<string>;
   upload?(root: ExplorerRoot, dirRel: string, files: File[]): Promise<void>;
   beginDragOut?(root: ExplorerRoot, relPath: string, isDir: boolean): void;
   cancelDragOut?(): void;
@@ -84,6 +105,9 @@ export interface MenuAnchor {
   x: number;
   y: number;
   items: MenuItem[];
+  /** The row element the menu was opened from, when there is one (a long-press
+   *  on touch has nothing focused) — the menu returns focus here on close. */
+  invoker?: HTMLElement | null;
 }
 
 /** Everything a row needs to identify itself to the shared handlers + the

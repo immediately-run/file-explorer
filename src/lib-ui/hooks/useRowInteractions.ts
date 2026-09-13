@@ -28,7 +28,13 @@ export interface NodeHandlers {
     e: { clientX: number; clientY: number; currentTarget?: EventTarget | null },
     ctx: RowCtx,
   ) => void;
-  onMoveDrop: (fromAbs: string, fromRoot: string, targetDir: string, targetRoot: string) => void;
+  onMoveDrop: (
+    fromAbs: string,
+    fromRoot: string,
+    fromIsDir: boolean,
+    targetDir: string,
+    targetRoot: string,
+  ) => void;
   onUploadDrop: (files: File[], targetDir: string, writable: boolean) => void;
   beginDragOut: (absPath: string, isDir: boolean, mountId: string, rootPath: string) => void;
   cancelDragOut: () => void;
@@ -50,6 +56,27 @@ export interface RowProps {
 }
 
 /**
+ * The keyboard spelling of the row's context menu (ContextMenu key, or
+ * Shift+F10 where keyboards have no menu key) — the ONE handler every layout's
+ * row keydown calls first, so a row's menu actions (delete, rename, move…)
+ * are never pointer-only in any layout. Returns whether the key was consumed.
+ */
+export function openRowMenuKey(
+  e: React.KeyboardEvent,
+  handlers: NodeHandlers,
+  ctx: RowCtx,
+): boolean {
+  if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return false;
+  e.preventDefault();
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  handlers.onMenu(
+    { clientX: r.left + 12, clientY: r.bottom, currentTarget: e.currentTarget },
+    ctx,
+  );
+  return true;
+}
+
+/**
  * Build the gesture props for one row. `longPress` is the pointer bundle from
  * `useLongPress` (the layout creates it so the menu opens at the row, mirroring
  * the tree). Returns `{ dropTarget, rowProps }`.
@@ -68,10 +95,11 @@ export function useRowInteractions(
   const { absPath, isDir, rootPath, mountId, writable } = ctx;
 
   // Drag-out (R3-83) + internal move (R3-81) both start here: set the private move
-  // payload (used only for an in-explorer drop) AND ask the host to begin a
-  // cross-app drag-out; whichever drop fires wins (the other is cancelled).
+  // payload (used only for an in-explorer drop — it names whether the dragged
+  // thing is a folder, so the drop side can restore the right row) AND ask the
+  // host to begin a cross-app drag-out; whichever drop fires wins.
   const onDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData(MOVE_MIME, JSON.stringify({ from: absPath, rootPath }));
+    e.dataTransfer.setData(MOVE_MIME, JSON.stringify({ from: absPath, rootPath, isDir }));
     e.dataTransfer.effectAllowed = "copyMove";
     handlers.beginDragOut(absPath, isDir, mountId, rootPath);
   };
@@ -100,8 +128,12 @@ export function useRowInteractions(
     setDropTarget(false);
     handlers.cancelDragOut(); // the drop landed inside the explorer → not a drag-out
     if (move) {
-      const { from, rootPath: fromRoot } = JSON.parse(move) as { from: string; rootPath: string };
-      handlers.onMoveDrop(from, fromRoot, absPath, rootPath);
+      const { from, rootPath: fromRoot, isDir: fromIsDir } = JSON.parse(move) as {
+        from: string;
+        rootPath: string;
+        isDir: boolean;
+      };
+      handlers.onMoveDrop(from, fromRoot, fromIsDir, absPath, rootPath);
     } else if (files.length) {
       handlers.onUploadDrop(files, absPath, writable);
     }

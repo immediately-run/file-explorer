@@ -25,6 +25,13 @@ export const dirOf = (p: string): string => {
 export const toMountRel = (rootPath: string, absPath: string): string =>
   absPath.slice(rootPath.replace(/\/+$/, "").length) || "/";
 
+/** The inverse of {@link toMountRel}: a mount-relative dir ("/src") made
+ *  absolute under `rootPath` ("<root>/src"); "/" maps to the root itself. */
+export const joinRel = (rootPath: string, relDir: string): string => {
+  const normalized = normalizeRel(relDir);
+  return normalized === "/" ? rootPath.replace(/\/+$/, "") : joinPath(rootPath, normalized.slice(1));
+};
+
 // ---------------------------------------------------------------------------
 // Root metadata (R3-79 / FILE_EXPLORER_SPEC §2) — over the generalized
 // ExplorerRoot. The SDK adapter populates these fields from a SandboxMount; the
@@ -195,6 +202,9 @@ export interface MovePayload {
   from: string;
   /** The root path of the source mount (to forbid cross-mount moves). */
   rootPath: string;
+  /** Whether the dragged thing is a folder (so a failed move restores the
+   *  right row shape when the source listing is no longer cached). */
+  isDir: boolean;
 }
 
 /**
@@ -214,6 +224,20 @@ export const moveRejection = (
   const f = from.replace(/\/+$/, "");
   const t = targetDir.replace(/\/+$/, "");
   if (t === f || t.startsWith(f + "/")) return "into-self";
+  return null;
+};
+
+/** The human sentence for a destination the move refuses, or null when it
+ *  doesn't — the move picker's disabled-button reason. */
+export const moveRefusalLabel = (
+  target: { absPath: string; rootPath: string; name: string },
+  dirAbs: string,
+  dirRootPath: string,
+): string | null => {
+  const reason = moveRejection(target.absPath, dirAbs, target.rootPath, dirRootPath);
+  if (reason === "cross-mount") return WRITE_ERR["cross-mount"];
+  if (reason === "same-dir") return `${target.name} is already in this folder.`;
+  if (reason === "into-self") return "A folder can’t move into itself.";
   return null;
 };
 

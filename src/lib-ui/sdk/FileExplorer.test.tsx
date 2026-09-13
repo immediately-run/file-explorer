@@ -154,10 +154,13 @@ describe("FileExplorer", () => {
     expect(h.openInEditor).toHaveBeenCalledWith("/src/index.ts");
 
     // The subdirectory is still expanded and its contents still visible.
+    // (The treeitem is the row element; its child rows live in the sibling
+    // group, so scope the query to the row's list item.)
     const src = screen.getByRole("treeitem", { name: "src" });
     expect(src).toHaveAttribute("aria-expanded", "true");
-    expect(within(src).getByText("index.ts")).toBeInTheDocument();
-    expect(within(src).getByText("util.ts")).toBeInTheDocument();
+    const srcItem = src.closest("li") as HTMLElement;
+    expect(within(srcItem).getByText("index.ts")).toBeInTheDocument();
+    expect(within(srcItem).getByText("util.ts")).toBeInTheDocument();
   });
 
   it("FX-4a: the clicked file is marked selected and stays selected across a re-announce", async () => {
@@ -339,9 +342,12 @@ describe("R3-80 — context menu", () => {
   // therefore change nothing at all — no intent, and the row still there. Asserted
   // because it was reached for by hand (2026-09-13) and had no guard.
   it("cancelling the delete confirm removes nothing and leaves the row in place", async () => {
+    const user = userEvent.setup();
     await renderWithSrcExpanded();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    fireEvent.click(screen.getByRole("button", { name: "Delete index.ts", hidden: true }));
+    fireEvent.contextMenu(screen.getByText("index.ts"));
+    const menu = await screen.findByRole("menu");
+    await user.click(within(menu).getByRole("menuitem", { name: /^Delete/ }));
     expect(h.deleteEntry).not.toHaveBeenCalled();
     expect(screen.getByRole("treeitem", { name: "index.ts" })).toBeInTheDocument();
     confirm.mockRestore();

@@ -12,7 +12,7 @@ import { TreeStore, useSelected } from "./treeStore";
 import FileGlyph from "./FileGlyph";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
 import { useLongPress } from "./hooks/useLongPress";
-import { useRowInteractions, type NodeHandlers } from "./hooks/useRowInteractions";
+import { useRowInteractions, openRowMenuKey, type NodeHandlers } from "./hooks/useRowInteractions";
 import { mountLabel, subtreeLabel, isWritableMount, toMountRel, isProtected } from "./explorer";
 import type { ExplorerRoot } from "./types";
 
@@ -57,6 +57,7 @@ const ColRow = memo(function ColRow({
       }
       onClick={() => onChoose(row)}
       onKeyDown={(e) => {
+        if (openRowMenuKey(e, handlers, ctx)) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onChoose(row);

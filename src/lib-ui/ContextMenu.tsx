@@ -7,12 +7,22 @@
 // nothing here can offer an action that would come back forbidden/protected/EROFS.
 //
 // ARIA `menu`/`menuitem` with roving focus + arrow keys; dismiss on outside-click,
-// Escape, or scroll. Positioned at the pointer (clamped to the viewport).
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+// Escape, or scroll. The dialog/menu contract (focus in, Escape, Tab-as-leave
+// closing behind the move, focus returned to the invoker) is the shared
+// useOverlayFocusDismiss hook — one spelling for this menu, the summarize modal
+// and the move picker.
+import { useEffect, useLayoutEffect, useState } from "react";
+import { useOverlayFocusDismiss } from "./hooks/useOverlayFocusDismiss";
 import type { MenuAnchor } from "./types";
 
 function ContextMenu({ anchor, onClose }: { anchor: MenuAnchor; onClose: () => void }) {
-  const ref = useRef<HTMLUListElement>(null);
+  // A menu does not trap Tab (APG Menu Button): Tab is leave, and the menu
+  // closes behind the browser's own focus move. Focus returns to the invoker
+  // on every close path — including that one never yanking it back.
+  const ref = useOverlayFocusDismiss<HTMLUListElement>(true, onClose, {
+    trapTab: false,
+    returnTo: anchor.invoker ?? null,
+  });
   const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
 
   // Clamp into the viewport once measured.
@@ -25,25 +35,20 @@ function ContextMenu({ anchor, onClose }: { anchor: MenuAnchor; onClose: () => v
     setPos({ x: Math.max(6, x), y: Math.max(6, y) });
     // Focus the first item for keyboard users.
     el.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
-  }, [anchor]);
+  }, [anchor, ref]);
 
-  // Dismiss on outside pointer, Escape, or scroll.
+  // Dismiss on outside pointer or scroll (Escape and Tab are the hook's).
   useEffect(() => {
     const onDocPointer = (e: PointerEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
     };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
     document.addEventListener("pointerdown", onDocPointer, true);
-    document.addEventListener("keydown", onKey, true);
     window.addEventListener("scroll", onClose, true);
     return () => {
       document.removeEventListener("pointerdown", onDocPointer, true);
-      document.removeEventListener("keydown", onKey, true);
       window.removeEventListener("scroll", onClose, true);
     };
-  }, [onClose]);
+  }, [ref, onClose]);
 
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
     const items = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]") ?? []);

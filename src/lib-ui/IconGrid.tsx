@@ -10,7 +10,7 @@ import FileGlyph from "./FileGlyph";
 import Breadcrumb from "./Breadcrumb";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
 import { useLongPress } from "./hooks/useLongPress";
-import { useRowInteractions, type NodeHandlers } from "./hooks/useRowInteractions";
+import { useRowInteractions, openRowMenuKey, type NodeHandlers } from "./hooks/useRowInteractions";
 import { breadcrumbFor, toMountRel, isProtected } from "./explorer";
 import { fileTypeLabel } from "./entryMeta";
 import type { ExplorerRoot } from "./types";
@@ -54,6 +54,7 @@ const IconTile = memo(function IconTile({
       }
       onClick={() => onOpen(row)}
       onKeyDown={(e) => {
+        if (openRowMenuKey(e, handlers, ctx)) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onOpen(row);

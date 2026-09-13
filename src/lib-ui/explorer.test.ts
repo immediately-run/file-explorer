@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import {
   joinPath,
+  joinRel,
   basename,
   dirOf,
   toMountRel,
@@ -16,6 +17,7 @@ import {
   mountScopes,
   orderMounts,
   moveRejection,
+  moveRefusalLabel,
   uploadTargetDir,
 } from "./explorer";
 import type { ExplorerRoot } from "./types";
@@ -141,5 +143,37 @@ describe("uploadTargetDir (R3-82 §5)", () => {
   });
   it("a drop that hits no row at all is the scope root", () => {
     expect(uploadTargetDir(null, root)).toBe(root);
+  });
+});
+
+describe("moveRefusalLabel (the Move-to picker's disabled-button reason)", () => {
+  const target = { absPath: "/mnt/abc/src/notes.md", rootPath: "/mnt/abc", name: "notes.md" };
+  it("null when the destination takes the move", () => {
+    expect(moveRefusalLabel(target, "/mnt/abc/docs", "/mnt/abc")).toBeNull();
+  });
+  it("names the folder that is already home", () => {
+    expect(moveRefusalLabel(target, "/mnt/abc/src", "/mnt/abc")).toBe(
+      "notes.md is already in this folder.",
+    );
+  });
+  it("names a folder moved into itself", () => {
+    const folder = { absPath: "/mnt/abc/src", rootPath: "/mnt/abc", name: "src" };
+    expect(moveRefusalLabel(folder, "/mnt/abc/src/sub", "/mnt/abc")).toBe(
+      "A folder can’t move into itself.",
+    );
+  });
+  it("uses the shared cross-mount copy", () => {
+    expect(moveRefusalLabel(target, "/spaces/s1", "/spaces/s1")).toBe(
+      "Can’t move between spaces yet.",
+    );
+  });
+});
+
+describe("joinRel (toMountRel's inverse)", () => {
+  it("maps a subdir absolute under the root", () => {
+    expect(joinRel("/mnt/abc", "/src")).toBe("/mnt/abc/src");
+  });
+  it("maps the mount root to the root itself (no trailing slash)", () => {
+    expect(joinRel("/mnt/abc/", "/")).toBe("/mnt/abc");
   });
 });

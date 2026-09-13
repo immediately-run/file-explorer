@@ -7,13 +7,16 @@
 // A non-SDK consumer (file-commander) supplies its own fs/roots and simply omits
 // the actions it doesn't implement (the affordance then hides).
 //
-// Behavior is byte-for-byte the same as the pre-extraction app: the same four
-// layouts, the same `TreeStore` + `useLayout`, the same context menu, breadcrumb,
-// scope headers, gestures, and the FX-1/FX-2/FX-4a/FX-4b invariants.
+// Writes render their own result (R-IX-3/R-IX-4): the write flow in writeFlow.ts
+// inserts the pending row, settles it from the action's return, and refetches
+// only the changed directory. The tree follows the APG Tree View pattern (one
+// roving tab stop per tree; the focusable row IS the treeitem), and pending and
+// settled states announce through ONE live region beside the view (R-IX-7).
 import {
   memo,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -32,6 +35,7 @@ import {
   ChevronsDownUp,
   FilePlus,
   FolderPlus,
+  FolderInput,
   Trash2,
   Pencil,
   Upload,
@@ -46,6 +50,9 @@ import {
   useNode,
   useActive,
   useActiveAncestor,
+  usePending,
+  useRowFocused,
+  useTreeUnfocused,
   useViewed,
   useViewedAncestor,
 } from "./treeStore";
@@ -54,11 +61,16 @@ import LayoutSwitcher from "./LayoutSwitcher";
 import ListView from "./ListView";
 import IconGrid from "./IconGrid";
 import ColumnView from "./ColumnView";
+import MoveDialog, { type MoveTarget } from "./MoveDialog";
 import { useLongPress } from "./hooks/useLongPress";
 import { useLayout } from "./hooks/useLayout";
-import { type NodeHandlers } from "./hooks/useRowInteractions";
+import { firstTreeChildFocus, rovingTreeFocus } from "./hooks/rovingTreeFocus";
+import { type NodeHandlers, openRowMenuKey } from "./hooks/useRowInteractions";
+import { runCreate, runDelete, runRename, runUpload, type WritePorts } from "./writeFlow";
+import { announce as announceMessage, subscribeToAnnouncements } from "./announce";
 import {
   joinPath,
+  joinRel,
   basename,
   dirOf,
   toMountRel,
@@ -184,7 +196,16 @@ const TreeNode = memo(function TreeNode({
   const { expanded, selected, errored, entries } = useNode(store, path);
   const open = isDir && expanded;
   const loading = isDir && open && entries === undefined && !errored;
+  // A write in flight: the row the user just asked for, rendered pending at
+  // its final position until the write's own return settles it (R-IX-3/4).
+  const pending = usePending(store, path);
   const [dropTarget, setDropTarget] = useState(false);
+  // Roving tabIndex (APG Tree View): exactly one row per tree is the tab stop —
+  // the focused row, or the tree's root while no row of this tree holds focus.
+  const rowFocused = useRowFocused(store, path);
+  const treeUnfocused = useTreeUnfocused(store, rootPath);
+  const tabStop = rowFocused || (treeUnfocused && depth === 0);
+  const groupId = useId();
 
   useEffect(() => {
     if (isDir && open && entries === undefined && !errored)
@@ -209,7 +230,6 @@ const TreeNode = memo(function TreeNode({
   // without the tree ever moving on its own (the highlight-only contract).
   const ancestorMatch = useViewedAncestor(store, repoRel);
   const containsViewed = isDir && !open && ancestorMatch;
-  const deletable = writable && !isProtected(repoRel) && !!handlers.onDelete;
   const rowCtx: RowCtx = { absPath: path, isDir, rootPath, mountId, writable };
 
   const longPress = useLongPress((x, y) =>
@@ -217,28 +237,36 @@ const TreeNode = memo(function TreeNode({
   );
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (openRowMenuKey(e, handlers, rowCtx)) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       handlers.onActivate(path, isDir);
-    } else if (isDir && e.key === "ArrowRight" && !open) {
-      store.toggle(path);
-    } else if (isDir && e.key === "ArrowLeft" && open) {
-      store.toggle(path);
-    } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
-      e.preventDefault();
-      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-      handlers.onMenu(
-        { clientX: r.left + 12, clientY: r.bottom, currentTarget: e.currentTarget },
-        rowCtx,
-      );
+    } else if (e.key === "ArrowRight" && isDir) {
+      // APG Tree View: expand a closed folder; in an open one, move to the
+      // first child (its rows may still be loading — the move then no-ops).
+      if (!open) {
+        store.toggle(path);
+      } else {
+        firstTreeChildFocus(e.currentTarget as HTMLElement);
+      }
+    } else if (e.key === "ArrowLeft") {
+      // Collapse an open folder; otherwise step out to the parent row.
+      if (isDir && open) {
+        store.toggle(path);
+      } else {
+        const group = e.currentTarget.closest('ul[role="group"]');
+        (group?.previousElementSibling as HTMLElement | null)?.focus();
+      }
     }
   };
 
   // Drag-out (R3-83) + internal move (R3-81) both start here. We set the private
-  // move payload (used only for an in-explorer drop) AND ask the host to begin a
-  // cross-app drag-out; whichever drop fires wins (the other is cancelled).
+  // move payload (used only for an in-explorer drop — it names whether the
+  // dragged thing is a folder, so the drop side can restore the right row) AND
+  // ask the host to begin a cross-app drag-out; whichever drop fires wins (the
+  // other is cancelled).
   const onDragStart = (e: React.DragEvent) => {
-    e.dataTransfer.setData(MOVE_MIME, JSON.stringify({ from: path, rootPath }));
+    e.dataTransfer.setData(MOVE_MIME, JSON.stringify({ from: path, rootPath, isDir }));
     e.dataTransfer.effectAllowed = "copyMove";
     handlers.beginDragOut(path, isDir, mountId, rootPath);
   };
@@ -267,11 +295,12 @@ const TreeNode = memo(function TreeNode({
     setDropTarget(false);
     handlers.cancelDragOut(); // the drop landed inside the explorer → not a drag-out
     if (move) {
-      const { from, rootPath: fromRoot } = JSON.parse(move) as {
+      const { from, rootPath: fromRoot, isDir: fromIsDir } = JSON.parse(move) as {
         from: string;
         rootPath: string;
+        isDir: boolean;
       };
-      handlers.onMoveDrop(from, fromRoot, path, rootPath);
+      handlers.onMoveDrop(from, fromRoot, fromIsDir, path, rootPath);
     } else if (files.length) {
       handlers.onUploadDrop(files, path, writable);
     }
@@ -280,23 +309,32 @@ const TreeNode = memo(function TreeNode({
   const Icon = isDir ? (open ? FolderOpen : Folder) : FileIcon;
 
   return (
-    <li
-      role="treeitem"
-      aria-expanded={isDir ? open : undefined}
-      aria-selected={!isDir ? selected : undefined}
-      aria-label={name}
-    >
+    <li role="none">
+      {/* The row IS the treeitem (4.1.2): the focusable element carries the
+          role and the full accessible name, and nests no interactive element —
+          delete lives in the row's context menu. `aria-owns` re-parents the
+          sibling group into the accessibility tree, where the DOM (which keeps
+          the group outside the row so row events never bubble through it)
+          cannot. */}
       <div
+        role="treeitem"
+        aria-owns={isDir && open ? groupId : undefined}
+        aria-expanded={isDir ? open : undefined}
+        aria-selected={!isDir ? selected : undefined}
+        aria-busy={pending ? true : undefined}
+        aria-label={name}
         className={
           "tnode" +
           (selected ? " tnode--selected" : "") +
           (active ? " tnode--active" : "") +
           (viewed ? " tnode--viewed" : "") +
-          (dropTarget ? " tnode--droptarget" : "")
+          (dropTarget ? " tnode--droptarget" : "") +
+          (pending ? " tnode--pending" : "")
         }
         style={{ paddingLeft: 8 + depth * 14 }}
-        tabIndex={0}
+        tabIndex={tabStop ? 0 : -1}
         draggable
+        onFocus={() => store.setFocus(path)}
         onClick={() => handlers.onActivate(path, isDir)}
         onKeyDown={onKeyDown}
         onContextMenu={(e) => {
@@ -360,30 +398,16 @@ const TreeNode = memo(function TreeNode({
             <Play size={11} aria-hidden="true" />
           </span>
         )}
-        {loading && (
+        {(loading || pending) && (
           <span className="tnode__spin" aria-hidden="true">
             <Loader2 size={13} />
           </span>
         )}
         {renderRowAccessory?.(rowCtx)}
-        {deletable && (
-          <button
-            type="button"
-            className="tnode__del"
-            aria-label={`Delete ${name}`}
-            title={`Delete ${name}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              handlers.onDelete(path, isDir, rootPath);
-            }}
-          >
-            <Trash2 size={13} aria-hidden="true" />
-          </button>
-        )}
       </div>
 
       {isDir && open && (
-        <ul role="group">
+        <ul role="group" id={groupId} className="tree__group">
           {errored && (
             <li
               className="tnode tnode--muted"
@@ -538,7 +562,17 @@ const Scope = memo(function Scope({
           </button>
         )}
       </div>
-      <ul role="tree" aria-label={label} className="tree">
+      {/* Up/Down/Home/End roam the VISIBLE rows (a collapsed folder's rows are
+          simply not rendered, so DOM order is visual order); Right/Left are the
+          rows' own (expand / collapse / step out). */}
+      <ul
+        role="tree"
+        aria-label={label}
+        className="tree"
+        onKeyDown={(e) => {
+          if (rovingTreeFocus(e.currentTarget, e.key)) e.preventDefault();
+        }}
+      >
         <TreeNode
           key={root.path}
           path={root.path}
@@ -580,6 +614,14 @@ function FileExplorerView({
 }: FileExplorerViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  // "Move to…" picker target (the non-drag move path, WCAG 2.5.7).
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  // The ONE live region (R-IX-7): pending and settled states are announced
+  // here, never scattered per component. The region's message comes from the
+  // announcement channel (announce.ts), so the view's own writes AND sibling
+  // overlays (the summarize modal) reach the same single region.
+  const [statusMsg, setStatusMsg] = useState("");
+  useEffect(() => subscribeToAnnouncements(setStatusMsg), []);
   // Inline prompt for create / rename: a single targeted input.
   const [prompt, setPrompt] = useState<
     | {
@@ -587,7 +629,13 @@ function FileExplorerView({
         baseDir: string;
         rootPath: string;
       }
-    | { mode: "rename"; targetAbs: string; rootPath: string; initial: string }
+    | {
+        mode: "rename";
+        targetAbs: string;
+        rootPath: string;
+        initial: string;
+        isDir: boolean;
+      }
     | null
   >(null);
   const [promptValue, setPromptValue] = useState("");
@@ -599,6 +647,16 @@ function FileExplorerView({
   // synchronously by the focus hand-back) cannot run `submitPrompt` and turn the
   // cancel into a commit.
   const promptCancellingRef = useRef(false);
+  // The prompt takes focus in a mount EFFECT, not `autoFocus`: the prompt
+  // usually opens as the context menu closes, and the menu's focus-return
+  // (its unmount cleanup) would otherwise land after `autoFocus` and steal
+  // focus straight back — blurring the input into a phantom blur-commit.
+  // Effect setup runs after every cleanup in the same commit, so the input
+  // reliably ends up focused.
+  const promptInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (prompt) promptInputRef.current?.focus();
+  }, [prompt]);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetRef = useRef<{ dir: string; rootPath: string } | null>(
     null,
@@ -815,18 +873,18 @@ function FileExplorerView({
     [layout, ordered, store, setLayout],
   );
 
-  const runWrite = useCallback(
-    async (op: () => Promise<void>) => {
-      setError(null);
-      try {
-        await op();
-        store.refresh();
-      } catch (e) {
-        const code = (e as { code?: string })?.code ?? "unknown";
-        setError(WRITE_ERR[code] ?? "Couldn’t complete that change.");
-      }
-    },
-    [store],
+  // The optimistic write flow (R-IX-3/R-IX-4): every write renders its own
+  // result — pending row first, the action's return settles it, one narrow
+  // refetch for authority — and announces both halves (R-IX-7).
+  const writePorts = useMemo<WritePorts>(
+    () => ({
+      store,
+      actions: actions ?? ({} as ExplorerActions),
+      announce: announceMessage,
+      fail: (message: string) => setError(message),
+      begin: () => setError(null),
+    }),
+    [store, actions],
   );
 
   // --- stable node handlers (so the memoized tree doesn't re-render) ---
@@ -867,6 +925,7 @@ function FileExplorerView({
     (
       fromAbs: string,
       fromRoot: string,
+      fromIsDir: boolean,
       targetDir: string,
       targetRoot: string,
     ) => {
@@ -878,11 +937,15 @@ function FileExplorerView({
       }
       const root = rootByPath(targetDir);
       if (!root) return;
-      const from = toMountRel(fromRoot, fromAbs);
       const to = toMountRel(targetRoot, joinPath(targetDir, basename(fromAbs)));
-      void runWrite(() => actions.rename!(root, from, to));
+      // The moved row's own entry, from the store that rendered it (falling
+      // back to the drag payload's facts only if the listing already went).
+      const entry =
+        store.getEntries(dirOf(fromAbs))?.find((en) => en.name === basename(fromAbs)) ??
+        { name: basename(fromAbs), isDir: fromIsDir };
+      runRename(writePorts, root, fromAbs, entry, to);
     },
-    [actions, runWrite, rootByPath],
+    [actions, writePorts, rootByPath, store],
   );
 
   const onUploadDrop = useCallback(
@@ -890,11 +953,9 @@ function FileExplorerView({
       if (!actions?.upload || !writable || !files.length) return;
       const root = rootByPath(targetDirAbs);
       if (!root) return;
-      void runWrite(() =>
-        actions.upload!(root, toMountRel(root.path, targetDirAbs), files),
-      );
+      runUpload(writePorts, root, targetDirAbs, toMountRel(root.path, targetDirAbs), files);
     },
-    [actions, runWrite, rootByPath],
+    [actions, writePorts, rootByPath],
   );
 
   const beginDragOut = useCallback(
@@ -919,9 +980,12 @@ function FileExplorerView({
       const mountRel = toMountRel(rootPath, absPath);
       if (!window.confirm(`Delete ${isDir ? "folder" : "file"} ${mountRel}?`))
         return;
-      void runWrite(() => actions.delete!(root, mountRel));
+      const entry =
+        store.getEntries(dirOf(absPath))?.find((en) => en.name === basename(absPath)) ??
+        { name: basename(absPath), isDir };
+      runDelete(writePorts, root, dirOf(absPath), entry, mountRel);
     },
-    [actions, runWrite, rootByPath],
+    [actions, writePorts, rootByPath, store],
   );
 
   // --- context menu construction (gated items only) ---
@@ -991,6 +1055,20 @@ function FileExplorerView({
         }
         if (!isProtected(mountRel) && ctx.absPath !== ctx.rootPath) {
           if (actions?.rename) {
+            // The non-drag move path (WCAG 2.5.7): a directory picker that
+            // commits through the SAME move the drag-drop takes.
+            items.push({
+              key: "move-to",
+              label: "Move to…",
+              icon: <FolderInput size={14} />,
+              onSelect: () =>
+                setMoveTarget({
+                  absPath: ctx.absPath,
+                  rootPath: ctx.rootPath,
+                  name: basename(ctx.absPath),
+                  isDir: ctx.isDir,
+                }),
+            });
             items.push({
               key: "rename",
               label: "Rename…",
@@ -1001,6 +1079,7 @@ function FileExplorerView({
                   targetAbs: ctx.absPath,
                   rootPath: ctx.rootPath,
                   initial: basename(ctx.absPath),
+                  isDir: ctx.isDir,
                 });
                 setPromptValue(basename(ctx.absPath));
               },
@@ -1020,7 +1099,7 @@ function FileExplorerView({
       // Consumer extension slot (e.g. the SDK adapter's "Summarize…").
       if (extraMenuItems) items.push(...extraMenuItems(ctx));
       if (!items.length) return;
-      setMenu({ x: e.clientX, y: e.clientY, items });
+      setMenu({ x: e.clientX, y: e.clientY, items, invoker: promptReturnRef.current });
     },
     [actions, rootByPath, dispatchOpen, onDelete, extraMenuItems],
   );
@@ -1064,17 +1143,17 @@ function FileExplorerView({
     if (!root) return;
     if (p.mode === "rename") {
       if (!actions?.rename) return;
-      const from = toMountRel(p.rootPath, p.targetAbs);
-      const to = joinPath(dirOf(from), basename(value));
-      void runWrite(() => actions.rename!(root, from, to));
+      const fromRel = toMountRel(p.rootPath, p.targetAbs);
+      const toRel = joinPath(dirOf(fromRel), basename(value));
+      runRename(writePorts, root, p.targetAbs, { name: p.initial, isDir: p.isDir }, toRel);
     } else {
       const rel = joinPath(toMountRel(p.rootPath, p.baseDir), value);
       if (p.mode === "create-file") {
         if (!actions?.createFile) return;
-        void runWrite(() => actions.createFile!(root, rel));
+        runCreate(writePorts, "file", root, p.baseDir, rel);
       } else {
         if (!actions?.createFolder) return;
-        void runWrite(() => actions.createFolder!(root, rel));
+        runCreate(writePorts, "folder", root, p.baseDir, rel);
       }
     }
   };
@@ -1087,7 +1166,7 @@ function FileExplorerView({
     // The owning root was captured at menu time (target.rootPath).
     const root = rootByPath(target.rootPath);
     if (!root) return;
-    void runWrite(() => actions.upload!(root, target.dir, files));
+    runUpload(writePorts, root, joinRel(root.path, target.dir), target.dir, files);
   };
 
   const hasRoots = ordered.length > 0;
@@ -1158,11 +1237,18 @@ function FileExplorerView({
         </div>
       )}
 
+      {/* The one live region (R-IX-7 / WCAG 4.1.3): pending and settled writes
+          are announced here — visually hidden, present in the accessibility
+          tree, never stealing focus. */}
+      <div className="fx-status" role="status">
+        {statusMsg}
+      </div>
+
       {prompt && (
         <div className="panel__create">
           <input
+            ref={promptInputRef}
             className="panel__create-input"
-            autoFocus
             spellCheck={false}
             aria-label={
               prompt.mode === "rename"
@@ -1263,6 +1349,19 @@ function FileExplorerView({
       </div>
 
       {menu && <ContextMenu anchor={menu} onClose={() => setMenu(null)} />}
+
+      {moveTarget && (
+        <MoveDialog
+          target={moveTarget}
+          roots={ordered}
+          store={store}
+          onMove={(dirAbs, dirRootPath) => {
+            onMoveDrop(moveTarget.absPath, moveTarget.rootPath, moveTarget.isDir, dirAbs, dirRootPath);
+            setMoveTarget(null);
+          }}
+          onClose={() => setMoveTarget(null)}
+        />
+      )}
     </section>
   );
 }
