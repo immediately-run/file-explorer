@@ -245,6 +245,9 @@ export const moveRefusalLabel = (
  * Where an OS-file drop lands (`FILE_EXPLORER_SPEC §5`): the directory row under
  * the pointer, the PARENT of a file row, or the scope root when the drop misses
  * every row — a drop on the blank space below the tree, or on the scope header.
+ * The §5 upload BUTTON resolves its destination through the same shape: its
+ * "row" is the SELECTION (a selected dir itself, a selected file's parent)
+ * and the fallback is the repo root when nothing is selected.
  *
  * `row` is what the drop point resolves to, or `null` when it resolves to nothing.
  * Directory rows answer this for themselves before the event reaches a container,

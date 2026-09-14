@@ -41,6 +41,23 @@ keeps one scope-headed tree per root (worktree + spaces + granted subtrees). It
 reads entries through an injected `FsSource` (the SDK adapter's `sdkFsSource`), so
 the store is pure of any concrete fs.
 
+## The §5 upload button's selection-derived destination
+
+**Spec:** `FILE_EXPLORER_SPEC §5` (amended 2026-09-14 — the picker path).
+
+**Mapping:** the header Upload button in `src/lib-ui/FileExplorerView.tsx` reuses
+the ONE hidden `<input type="file" multiple>` the §3 "Upload here…" menu item
+opens (`uploadTargetRef` + `onUploadInput`), so both ingestion paths share the
+upload write flow. The destination cannot be pointed at (a drop can), so it is
+derived from the **selection** — which is why `TreeStore.select` now records the
+row's KIND (`select(path, isDir)`, read via `getSelectedRow()`/`useSelectedRow`)
+and why directory activation/navigation selects the entered folder in every
+layout (`handleActivate`, `navigateCwd`, `navigateCols`). The dir/file/none →
+dir/parent/repo-root resolution itself is the pure `uploadTargetDir`
+(`src/lib-ui/explorer.ts`), shared with the drag-drop target computation; the
+writable-root fallback (read-only selection → repo root; no writable scope → the
+button hides) lives in the view beside `uploadRoot`.
+
 ---
 
 ## Recorded findings (code-verification pass, 2026-06)
