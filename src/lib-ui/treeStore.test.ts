@@ -142,9 +142,42 @@ describe("TreeStore refreshDir vs concurrent writes", () => {
     store.refreshDir("/mnt/abc");
 
     await vi.waitFor(() => expect(readdir.mock.calls.length).toBe(2));
-    const names = store.getEntries("/mnt/abc")!.map((e) => e.name);
+    const names = store.getEntries("/mnt/abc").map((e) => e.name);
     expect(names).toEqual(["src", "aaa.ts", "README.md", "zzz.ts"]);
     expect(store.isPending("/mnt/abc/aaa.ts")).toBe(true);
     expect(store.isPending("/mnt/abc/zzz.ts")).toBe(true);
+  });
+});
+
+describe("TreeStore selection records the row kind (FILE_EXPLORER_SPEC §5)", () => {
+  it("select(path, isDir) answers getSelectedRow; a no-op re-select keeps the snapshot identity", () => {
+    const { fs } = countingFs();
+    const store = new TreeStore(fs);
+
+    store.select("/mnt/abc/src", true);
+    expect(store.getSelected()).toBe("/mnt/abc/src");
+    expect(store.getSelectedRow()).toEqual({ path: "/mnt/abc/src", isDir: true });
+
+    // The snapshot a useSyncExternalStore getter returns must be identity-stable
+    // between real mutations — a no-op re-select must not mint a new object.
+    const snapshot = store.getSelectedRow();
+    store.select("/mnt/abc/src", true);
+    expect(store.getSelectedRow()).toBe(snapshot);
+
+    store.select("/mnt/abc/src/index.ts", false);
+    expect(store.getSelectedRow()).toEqual({ path: "/mnt/abc/src/index.ts", isDir: false });
+    expect(store.getSelectedRow()).not.toBe(snapshot);
+  });
+
+  it("purging a removed root clears the selected row, not just the path", async () => {
+    const { fs } = countingFs();
+    const store = new TreeStore(fs);
+    store.ensureRoots(["/mnt/abc"]);
+    store.select("/mnt/abc/src", true);
+    expect(store.getSelectedRow()).toEqual({ path: "/mnt/abc/src", isDir: true });
+
+    store.ensureRoots([]); // the mount went away
+    expect(store.getSelected()).toBeNull();
+    expect(store.getSelectedRow()).toBeNull();
   });
 });

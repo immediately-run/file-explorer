@@ -21,7 +21,11 @@ const TREE: Record<string, DirEntry[]> = {
     { name: "index.ts", isDir: false },
     { name: "util.ts", isDir: false },
   ],
-  "/spaces/s1": [{ name: "note.md", isDir: false }],
+  "/spaces/s1": [
+    { name: "docs", isDir: true },
+    { name: "note.md", isDir: false },
+  ],
+  "/spaces/s1/docs": [{ name: "a.md", isDir: false }],
 };
 
 const readdir = vi.fn((path: string) => Promise.resolve(TREE[path] ?? []));
@@ -693,6 +697,37 @@ describe("FileExplorerView upload button (FILE_EXPLORER_SPEC §5)", () => {
     );
     await screen.findByText("note.md");
     expect(screen.queryByRole("button", { name: /^Upload files to/ })).not.toBeInTheDocument();
+  });
+
+  it("resolves the destination under the selection's OWN writable root, not just the first", async () => {
+    // A second WRITABLE root: §5's "a directory → that directory" must hold in
+    // any writable scope. The destination is relativized against the selection's
+    // owning root — a blind slice against the repo root would corrupt both the
+    // label and the upload path (review round 1, R1).
+    const user = userEvent.setup();
+    const upload = vi.fn(() => Promise.resolve());
+    const rwSpace: ExplorerRoot = {
+      ...roSpace,
+      writable: true,
+      scopes: [{ subtree: "/", mode: "rw" }],
+    };
+    const { container } = render(
+      <FileExplorerView roots={[worktree, rwSpace]} fs={fakeFs} actions={{ upload }} />,
+    );
+
+    // A selected DIRECTORY in the space uploads into that dir under the space.
+    await user.click(await screen.findByText("docs"));
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to /docs" }));
+    const file = new File(["hello"], "n.txt", { type: "text/plain" });
+    fireEvent.change(picker(container), { target: { files: [file] } });
+    expect(upload).toHaveBeenCalledWith(rwSpace, "/docs", [file]);
+
+    // A selected FILE at the space's top level uploads next to it — the space's
+    // own root, named honestly (not "the repo root").
+    await user.click(await screen.findByText("note.md"));
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to the s1 root" }));
+    fireEvent.change(picker(container), { target: { files: [file] } });
+    expect(upload).toHaveBeenLastCalledWith(rwSpace, "/", [file]);
   });
 });
 

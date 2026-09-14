@@ -688,10 +688,12 @@ function FileExplorerView({
   // The upload button's destination (FILE_EXPLORER_SPEC §5): the selected row's
   // directory — a selected directory itself, a selected file's PARENT (the
   // upload becomes its sibling) — or the repo root when nothing is selected.
-  // `ordered` ranks the worktree first, so the first writable root IS the repo
-  // root. A selection inside a read-only scope cannot receive an upload; the
-  // destination then falls back to the repo root (the affordance stays
-  // destination-honest — never shown-then-`EROFS`, per §2).
+  // The destination resolves under the SELECTION'S OWN root when that root is
+  // writable (so "a directory → that directory" holds in any writable scope,
+  // not just the first); a selection inside a read-only scope cannot receive
+  // an upload, and the destination then falls back to the repo root —
+  // `ordered` ranks the worktree first, so the first writable root IS the
+  // repo root. Never shown-then-`EROFS`, per §2.
   const uploadRoot = useMemo(
     () => ordered.find((m) => isWritableMount(m)) ?? null,
     [ordered],
@@ -700,16 +702,28 @@ function FileExplorerView({
   const selectedRowRoot = selectedRow ? rootByPath(selectedRow.path) : null;
   const usableSelectedRow =
     selectedRow && selectedRowRoot?.writable ? selectedRow : null;
-  const uploadDirRel = uploadRoot
-    ? toMountRel(uploadRoot.path, uploadTargetDir(usableSelectedRow, uploadRoot.path))
+  // The root the destination is resolved against: the selection's own writable
+  // root, else the repo-root fallback. `uploadTargetDir` answers an absolute
+  // path, so it MUST be relativized against the same root that owns it — a
+  // blind slice against `uploadRoot` would corrupt a selection living under a
+  // different (writable) mount.
+  const destRoot = usableSelectedRow && selectedRowRoot ? selectedRowRoot : uploadRoot;
+  const uploadDirRel = destRoot
+    ? toMountRel(destRoot.path, uploadTargetDir(usableSelectedRow, destRoot.path))
     : null;
   const uploadDestLabel =
-    uploadDirRel === "/" ? "the repo root" : (uploadDirRel ?? "");
+    !destRoot || uploadDirRel === null
+      ? ""
+      : uploadDirRel === "/"
+        ? destRoot === uploadRoot
+          ? "the repo root"
+          : `the ${mountLabel(destRoot)} root`
+        : uploadDirRel;
   /** §5 upload button: open the browser's native file picker on the shared
    *  hidden input (the same one the §3 "Upload here…" item uses). */
   const openUploadPicker = () => {
-    if (!actions?.upload || !uploadRoot || uploadDirRel === null) return;
-    uploadTargetRef.current = { dir: uploadDirRel, rootPath: uploadRoot.path };
+    if (!actions?.upload || !destRoot || uploadDirRel === null) return;
+    uploadTargetRef.current = { dir: uploadDirRel, rootPath: destRoot.path };
     uploadInputRef.current?.click();
   };
   // Idempotent + emit-free: safe during render so new scopes paint open.
