@@ -42,6 +42,7 @@ export {
   isProtected,
   breadcrumbFor,
   moveRejection,
+  uploadTargetDir,
   MOVE_MIME,
   MAX_UPLOAD_BYTES,
   WRITE_ERR,
@@ -63,7 +64,16 @@ export { extOf, fileTypeLabel, compareEntries } from "./entryMeta";
 export type { SortKey, SortableEntry } from "./entryMeta";
 
 // The path-keyed tree store + its per-slice subscription hooks.
-export { TreeStore, useNode, useSelected, useActive, useDir, usePending, useFocused } from "./treeStore";
+export {
+  TreeStore,
+  useNode,
+  useSelected,
+  useSelectedRow,
+  useActive,
+  useDir,
+  usePending,
+  useFocused,
+} from "./treeStore";
 
 // The optimistic write flow (ports + per-op orchestration).
 export { runCreate, runRename, runDelete, runUpload, writeError } from "./writeFlow";

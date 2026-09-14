@@ -11,7 +11,7 @@ import type { DirEntry, ExplorerRoot, FsSource } from "./types";
 
 // A two-level fixture tree the fake FsSource resolves from. Mutable: a write
 // test can land its file in the tree before the action resolves, exactly as a
-// real write lands before the authority answers.
+// real write lands it in the real fs, before the authority answers.
 const TREE: Record<string, DirEntry[]> = {
   "/mnt/abc": [
     { name: "src", isDir: true },
@@ -21,6 +21,7 @@ const TREE: Record<string, DirEntry[]> = {
     { name: "index.ts", isDir: false },
     { name: "util.ts", isDir: false },
   ],
+  "/spaces/s1": [{ name: "note.md", isDir: false }],
 };
 
 const readdir = vi.fn((path: string) => Promise.resolve(TREE[path] ?? []));
@@ -41,6 +42,18 @@ const worktree: ExplorerRoot = {
   kind: "worktree",
   writable: true,
   scopes: [{ subtree: "/", mode: "rw" }],
+  ejectable: false,
+};
+
+// A read-only space mount — the §2 "affordances hidden on read-only scopes"
+// case for the upload button's destination fallback.
+const roSpace: ExplorerRoot = {
+  id: "space:s1",
+  path: "/spaces/s1",
+  label: "s1",
+  kind: "space",
+  writable: false,
+  scopes: [{ subtree: "/", mode: "ro" }],
   ejectable: false,
 };
 
@@ -594,6 +607,92 @@ describe("FileExplorerView upload path", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("That file is too large to upload.");
     expect(screen.getByRole("status")).toHaveTextContent(/Couldn’t upload/);
     expect(readdir.mock.calls.length).toBe(callsBefore);
+  });
+});
+
+// --- §5 upload button: the native-picker path and its destination rules ---------
+describe("FileExplorerView upload button (FILE_EXPLORER_SPEC §5)", () => {
+  const picker = (container: HTMLElement) =>
+    container.querySelector<HTMLInputElement>('input[type="file"]')!;
+
+  it("uploads to the repo root when nothing is selected", async () => {
+    const upload = vi.fn(() => Promise.resolve());
+    const { container } = render(
+      <FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ upload }} />,
+    );
+    await screen.findByText("README.md");
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to the repo root" }));
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.change(picker(container), { target: { files: [file] } });
+
+    expect(upload).toHaveBeenCalledWith(worktree, "/", [file]);
+  });
+
+  it("uploads into the selected directory (and the row exposes its selection)", async () => {
+    const user = userEvent.setup();
+    const upload = vi.fn(() => Promise.resolve());
+    const { container } = render(
+      <FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ upload }} />,
+    );
+    await screen.findByText("src");
+    await user.click(screen.getByText("src"));
+
+    // The clicked folder is selected, and the button's label names it as the
+    // destination — the rule is discoverable on the affordance itself.
+    expect(screen.getByRole("treeitem", { name: "src" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to /src" }));
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.change(picker(container), { target: { files: [file] } });
+
+    expect(upload).toHaveBeenCalledWith(worktree, "/src", [file]);
+  });
+
+  it("uploads into the selected file's parent, so it becomes a sibling", async () => {
+    const user = userEvent.setup();
+    const upload = vi.fn(() => Promise.resolve());
+    const { container } = render(
+      <FileExplorerView roots={[worktree]} fs={fakeFs} actions={{ upload }} />,
+    );
+    await user.click(await screen.findByText("src"));
+    await screen.findByText("index.ts");
+    await user.click(screen.getByText("index.ts"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to /src" }));
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.change(picker(container), { target: { files: [file] } });
+
+    expect(upload).toHaveBeenCalledWith(worktree, "/src", [file]);
+  });
+
+  it("a selection inside a read-only scope falls back to the repo root", async () => {
+    const user = userEvent.setup();
+    const upload = vi.fn(() => Promise.resolve());
+    const { container } = render(
+      <FileExplorerView
+        roots={[worktree, roSpace]}
+        fs={fakeFs}
+        actions={{ upload }}
+      />,
+    );
+    await user.click(await screen.findByText("note.md"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to the repo root" }));
+    const file = new File(["hello"], "note.txt", { type: "text/plain" });
+    fireEvent.change(picker(container), { target: { files: [file] } });
+
+    expect(upload).toHaveBeenCalledWith(worktree, "/", [file]);
+  });
+
+  it("hides the button when there is no writable root (no shown-then-EROFS)", async () => {
+    render(
+      <FileExplorerView roots={[roSpace]} fs={fakeFs} actions={{ upload: vi.fn() }} />,
+    );
+    await screen.findByText("note.md");
+    expect(screen.queryByRole("button", { name: /^Upload files to/ })).not.toBeInTheDocument();
   });
 });
 

@@ -28,6 +28,14 @@ export class TreeStore {
   private errored = new Set<string>();
   private inflight = new Set<string>();
   private selected: string | null = null;
+  // Whether the selected row is a directory, recorded at select time so the
+  // upload button can resolve its destination (a selected dir IS the
+  // destination; a selected file's parent is) without a listing read.
+  private selectedIsDir = false;
+  // Stable snapshot of `{ selected, selectedIsDir }` — `getSelectedRow` is a
+  // `useSyncExternalStore` getter, so it must return the same identity between
+  // real mutations (mirrors `selectionSnapshot`).
+  private selectedRowSnapshot: { path: string; isDir: boolean } | null = null;
   // Optimistically inserted rows whose write has not settled yet (absolute
   // paths). A pending row renders in a pending treatment; the write's own
   // return settles it (R-IX-3/R-IX-4) — never a blanket refetch.
@@ -110,7 +118,11 @@ export class TreeStore {
     for (const p of [...this.entries.keys()]) if (under(p)) this.entries.delete(p);
     for (const p of [...this.errored]) if (under(p)) this.errored.delete(p);
     for (const p of [...this.pending]) if (under(p)) this.pending.delete(p);
-    if (this.selected && under(this.selected)) this.selected = null;
+    if (this.selected && under(this.selected)) {
+      this.selected = null;
+      this.selectedIsDir = false;
+      this.selectedRowSnapshot = null;
+    }
     if (this.focused && under(this.focused)) this.focused = null;
     let dropped = false;
     for (const p of [...this.selection]) {
@@ -129,6 +141,10 @@ export class TreeStore {
   getEntries = (p: string): DirEntry[] | undefined => this.entries.get(p);
   /** The selected absolute path (shared across every layout). */
   getSelected = (): string | null => this.selected;
+  /** The selected row — path + whether it is a directory — for consumers that
+   *  need the selection's SHAPE, not just its path (the upload button's
+   *  destination). Stable identity between mutations. */
+  getSelectedRow = (): { path: string; isDir: boolean } | null => this.selectedRowSnapshot;
   /** Is `p` (absolute) in the multi-select set? Drives the `lrow--selected`
    *  highlight under `selectionMode === "multi"`. */
   isInSelection = (p: string): boolean => this.selection.has(p);
@@ -218,10 +234,14 @@ export class TreeStore {
     this.emit();
   };
 
-  /** Record the selected file (absolute path). Drives the FX-4a row highlight. */
-  select = (p: string): void => {
-    if (this.selected === p) return;
+  /** Record the selected row (absolute path). Drives the FX-4a row highlight.
+   *  Files AND directories are selectable — a selected directory is the upload
+   *  button's destination (FILE_EXPLORER_SPEC §5), so its kind travels along. */
+  select = (p: string, isDir = false): void => {
+    if (this.selected === p && this.selectedIsDir === isDir) return;
     this.selected = p;
+    this.selectedIsDir = isDir;
+    this.selectedRowSnapshot = { path: p, isDir };
     this.emit();
   };
 
@@ -436,6 +456,12 @@ export function useNode(
 /** Subscribe to the shared selected path (drives the highlight in every layout). */
 export function useSelected(store: TreeStore): string | null {
   return useSyncExternalStore(store.subscribe, store.getSelected);
+}
+
+/** Subscribe to the selected ROW (path + isDir) — the shape the upload button's
+ *  destination needs. Same slice as {@link useSelected}, stable identity. */
+export function useSelectedRow(store: TreeStore): { path: string; isDir: boolean } | null {
+  return useSyncExternalStore(store.subscribe, store.getSelectedRow);
 }
 
 /** Subscribe a row to ONLY whether it is in the multi-select set. Mirrors

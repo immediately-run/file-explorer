@@ -536,6 +536,23 @@ describe("R3-82 — drag local files to upload into a directory", () => {
     expect(h.renameEntry).not.toHaveBeenCalled();
     expect(h.uploadFile).not.toHaveBeenCalled();
   });
+
+  // §5 upload BUTTON: the native file-picker path (the discoverable/mobile
+  // alternative to a drag), routing through the same `uploadFile` intent with
+  // the selected file's folder as the destination.
+  it("the Upload button uploads the picked file next to the selected file", async () => {
+    const { user, container } = await renderWithSrcExpanded();
+    await user.click(screen.getByText("index.ts")); // selects the file
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to /src" }));
+    const input = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    fireEvent.change(input, {
+      target: { files: [new File(["hello"], "note.txt", { type: "text/plain" })] },
+    });
+
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
 });
 
 // --- R3-83: drag-out source -------------------------------------------------

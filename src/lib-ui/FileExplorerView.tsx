@@ -52,6 +52,7 @@ import {
   useActiveAncestor,
   usePending,
   useRowFocused,
+  useSelectedRow,
   useTreeUnfocused,
   useViewed,
   useViewedAncestor,
@@ -320,7 +321,7 @@ const TreeNode = memo(function TreeNode({
         role="treeitem"
         aria-owns={isDir && open ? groupId : undefined}
         aria-expanded={isDir ? open : undefined}
-        aria-selected={!isDir ? selected : undefined}
+        aria-selected={selected}
         aria-busy={pending ? true : undefined}
         aria-label={name}
         className={
@@ -684,6 +685,33 @@ function FileExplorerView({
       ordered.find((m) => p === m.path || p.startsWith(m.path + "/")) ?? null,
     [ordered],
   );
+  // The upload button's destination (FILE_EXPLORER_SPEC §5): the selected row's
+  // directory — a selected directory itself, a selected file's PARENT (the
+  // upload becomes its sibling) — or the repo root when nothing is selected.
+  // `ordered` ranks the worktree first, so the first writable root IS the repo
+  // root. A selection inside a read-only scope cannot receive an upload; the
+  // destination then falls back to the repo root (the affordance stays
+  // destination-honest — never shown-then-`EROFS`, per §2).
+  const uploadRoot = useMemo(
+    () => ordered.find((m) => isWritableMount(m)) ?? null,
+    [ordered],
+  );
+  const selectedRow = useSelectedRow(store);
+  const selectedRowRoot = selectedRow ? rootByPath(selectedRow.path) : null;
+  const usableSelectedRow =
+    selectedRow && selectedRowRoot?.writable ? selectedRow : null;
+  const uploadDirRel = uploadRoot
+    ? toMountRel(uploadRoot.path, uploadTargetDir(usableSelectedRow, uploadRoot.path))
+    : null;
+  const uploadDestLabel =
+    uploadDirRel === "/" ? "the repo root" : (uploadDirRel ?? "");
+  /** §5 upload button: open the browser's native file picker on the shared
+   *  hidden input (the same one the §3 "Upload here…" item uses). */
+  const openUploadPicker = () => {
+    if (!actions?.upload || !uploadRoot || uploadDirRel === null) return;
+    uploadTargetRef.current = { dir: uploadDirRel, rootPath: uploadRoot.path };
+    uploadInputRef.current?.click();
+  };
   // Idempotent + emit-free: safe during render so new scopes paint open.
   store.ensureRoots(ordered.map((m) => m.path));
 
@@ -809,30 +837,36 @@ function FileExplorerView({
   // Navigate the flat (list/icons) layout's browsed directory, and report it to a
   // consumer via `onNavigate` (the extension point file-commander uses to track a
   // panel's current directory — the copy/move destination). A `null` cwd is the
-  // synthetic roots-root (no single directory) and is not reported.
+  // synthetic roots-root (no single directory) and is not reported. Entering a
+  // directory also SELECTS it (FILE_EXPLORER_SPEC §5): in a flat layout the
+  // browsed folder is the upload button's destination.
   const navigateCwd = useCallback(
     (path: string | null) => {
       // Controlled: don't touch internal state — just report; the consumer updates
       // its own `cwd` and passes it back. Uncontrolled: set internal + report (today).
       if (!controlledCwd) setCwd(path);
       if (path) {
+        store.select(path, true);
         const root = rootByPath(path);
         if (root) onNavigate?.(root, toMountRel(root.path, path));
       }
     },
-    [rootByPath, onNavigate, controlledCwd],
+    [store, rootByPath, onNavigate, controlledCwd],
   );
   // The Miller-columns analog: the focused column is the deepest path segment.
+  // Like `navigateCwd`, the deepest column is selected — it is the layout's
+  // "current directory" and the upload button's destination.
   const navigateCols = useCallback(
     (path: string[]) => {
       setColPath(path);
       const last = path[path.length - 1];
       if (last) {
+        store.select(last, true);
         const root = rootByPath(last);
         if (root) onNavigate?.(root, toMountRel(root.path, last));
       }
     },
-    [rootByPath, onNavigate],
+    [store, rootByPath, onNavigate],
   );
 
   // Switching layout seeds the new view from the current selection so the selected
@@ -909,9 +943,12 @@ function FileExplorerView({
       const root = rootByPath(absPath);
       if (isDir) {
         store.toggle(absPath);
+        // A clicked folder is also SELECTED (not just expanded): the selected
+        // directory is the upload button's destination (FILE_EXPLORER_SPEC §5).
+        if (selectionMode !== "none") store.select(absPath, true);
         if (root) onActivate?.(root, toMountRel(root.path, absPath), true);
       } else {
-        if (selectionMode !== "none") store.select(absPath);
+        if (selectionMode !== "none") store.select(absPath, false);
         if (!root) return; // a row always belongs to a rendered root
         const rel = toMountRel(root.path, absPath);
         onSelect?.(root, rel);
@@ -1197,6 +1234,21 @@ function FileExplorerView({
           >
             {hasRoots && (
               <>
+                {/* §5 upload button — the picker path for users who don't find
+                    drag-and-drop (and the mobile path: a tap opens the native
+                    file selector). The label names the live destination so the
+                    rule is discoverable on the affordance itself. */}
+                {actions?.upload && uploadRoot && (
+                  <button
+                    type="button"
+                    className="panel__action"
+                    title={`Upload files to ${uploadDestLabel}`}
+                    aria-label={`Upload files to ${uploadDestLabel}`}
+                    onClick={openUploadPicker}
+                  >
+                    <Upload size={15} aria-hidden="true" />
+                  </button>
+                )}
                 <LayoutSwitcher value={layout} onChange={chooseLayout} />
                 {layout === "tree" && (
                   <button
