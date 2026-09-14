@@ -853,34 +853,38 @@ function FileExplorerView({
   // panel's current directory — the copy/move destination). A `null` cwd is the
   // synthetic roots-root (no single directory) and is not reported. Entering a
   // directory also SELECTS it (FILE_EXPLORER_SPEC §5): in a flat layout the
-  // browsed folder is the upload button's destination.
+  // browsed folder is the upload button's destination. Gated on
+  // `selectionMode !== "none"` exactly like the tree's activation path, so a
+  // consumer that disabled selection never gets selection writes from
+  // navigation (its upload destination stays the repo root).
   const navigateCwd = useCallback(
     (path: string | null) => {
       // Controlled: don't touch internal state — just report; the consumer updates
       // its own `cwd` and passes it back. Uncontrolled: set internal + report (today).
       if (!controlledCwd) setCwd(path);
       if (path) {
-        store.select(path, true);
+        if (selectionMode !== "none") store.select(path, true);
         const root = rootByPath(path);
         if (root) onNavigate?.(root, toMountRel(root.path, path));
       }
     },
-    [store, rootByPath, onNavigate, controlledCwd],
+    [store, rootByPath, onNavigate, controlledCwd, selectionMode],
   );
   // The Miller-columns analog: the focused column is the deepest path segment.
   // Like `navigateCwd`, the deepest column is selected — it is the layout's
-  // "current directory" and the upload button's destination.
+  // "current directory" and the upload button's destination — under the same
+  // `selectionMode` gate.
   const navigateCols = useCallback(
     (path: string[]) => {
       setColPath(path);
       const last = path[path.length - 1];
       if (last) {
-        store.select(last, true);
+        if (selectionMode !== "none") store.select(last, true);
         const root = rootByPath(last);
         if (root) onNavigate?.(root, toMountRel(root.path, last));
       }
     },
-    [store, rootByPath, onNavigate],
+    [store, rootByPath, onNavigate, selectionMode],
   );
 
   // Switching layout seeds the new view from the current selection so the selected

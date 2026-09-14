@@ -729,6 +729,33 @@ describe("FileExplorerView upload button (FILE_EXPLORER_SPEC §5)", () => {
     fireEvent.change(picker(container), { target: { files: [file] } });
     expect(upload).toHaveBeenLastCalledWith(rwSpace, "/", [file]);
   });
+
+  it("selectionMode=\"none\" navigation writes no selection — the destination stays the repo root", async () => {
+    // Review round 2, R1: the tree's activation path gates selection on
+    // `selectionMode !== "none"`; flat-layout navigation must not be the leak.
+    const user = userEvent.setup();
+    const upload = vi.fn(() => Promise.resolve());
+    const { container } = render(
+      <FileExplorerView
+        roots={[worktree]}
+        fs={fakeFs}
+        actions={{ upload }}
+        layout="list"
+        selectionMode="none"
+      />,
+    );
+    // Enter the single mount, then browse INTO src — navigation only.
+    await user.click(await screen.findByRole("option", { name: /^repo/ }));
+    await user.click(await screen.findByRole("option", { name: /^src/ }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Upload files to the repo root" }));
+    fireEvent.change(picker(container), {
+      target: { files: [new File(["hello"], "n.txt", { type: "text/plain" })] },
+    });
+    expect(upload).toHaveBeenCalledWith(worktree, "/", [
+      expect.objectContaining({ name: "n.txt" }),
+    ]);
+  });
 });
 
 // --- every layout's rows expose the menu by keyboard (ContextMenu / Shift+F10) ---
