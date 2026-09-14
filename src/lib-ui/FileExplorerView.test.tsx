@@ -133,6 +133,9 @@ describe("FileExplorerView (headless, no SDK)", () => {
     await screen.findByText("README.md");
     // delete is NOT provided → no per-row delete button, even on a writable root.
     expect(screen.queryByLabelText(/^Delete /)).not.toBeInTheDocument();
+    // upload is NOT provided either → no §5 upload button, even on a writable
+    // root (the library's missing-action contract; review round 3's pin).
+    expect(screen.queryByRole("button", { name: /^Upload files to/ })).not.toBeInTheDocument();
     // …and the context menu offers no Delete / write items, only Open.
     fireEvent.contextMenu(screen.getByText("README.md"));
     const menu = await screen.findByRole("menu");
