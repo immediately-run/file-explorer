@@ -165,5 +165,3 @@ export function opensInPlaceOffer(
 export function withdrawsOffer(code: string | undefined): boolean {
   return code === "no-such-task" || code === "not-declared" || code === "task-version-mismatch";
 }
-
-
