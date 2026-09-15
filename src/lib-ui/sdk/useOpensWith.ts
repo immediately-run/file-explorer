@@ -10,7 +10,8 @@
 // Wrapping `readdir` rather than probing eagerly from the root is what keeps the cost
 // proportional to what the user actually looks at: an unopened subtree is never probed.
 import { useCallback, useMemo, useRef, useState } from "react";
-import { probeOffer, DECLARED_TASKS } from "./openWith";
+import { probeOffer, DECLARED_TASKS, DECLARED_LAUNCHES } from "./openWith";
+import { opensInPlaceOffer } from "../opensWith";
 import type { OpensWithOffer } from "../opensWith";
 import { joinPath } from "../explorer";
 import type { DirEntry, FsSource } from "../types";
@@ -25,6 +26,9 @@ export interface OpensWithState {
   fs: FsSource;
   /** The offer for a directory, or null (unprobed, unmarked, or withdrawn). */
   offerFor: (dirAbsPath: string) => OpensWithOffer | null;
+  /** The into-stage twin offer (R3-159), or null when the contract is not one this
+   *  app launches. Never withdrawn — see `opensInPlaceOffer` for why. */
+  inPlaceFor: (dirAbsPath: string) => OpensWithOffer | null;
   /** Stop offering a contract the host refused — the affordance withdraws itself. */
   withdraw: (task: string) => void;
 }
@@ -74,9 +78,15 @@ export function useOpensWith(fs: FsSource): OpensWithState {
     [offers, unavailable],
   );
 
+  const inPlaceFor = useCallback(
+    (dirAbsPath: string): OpensWithOffer | null =>
+      opensInPlaceOffer(offers.get(dirAbsPath) ?? null, { launchable: DECLARED_LAUNCHES }),
+    [offers],
+  );
+
   const withdraw = useCallback((task: string) => {
     setUnavailable((prev) => (prev.has(task) ? prev : new Set(prev).add(task)));
   }, []);
 
-  return { fs: wrapped, offerFor, withdraw };
+  return { fs: wrapped, offerFor, inPlaceFor, withdraw };
 }

@@ -1,6 +1,7 @@
 import {
   CONTENT_MARKER_FILE,
   openWithLabel,
+  opensInPlaceOffer,
   opensWithOffer,
   parseOpensWith,
   withdrawsOffer,
@@ -113,6 +114,40 @@ describe("opensWithOffer — absent affordance is the answer to every refusal", 
 
   it("cannot be talked into offering anything when the app declares nothing", () => {
     expect(opensWithOffer(marker({ opensWith: { task: "open-wiki" } }), { offerable: [] })).toBeNull();
+  });
+});
+
+describe("opensInPlaceOffer — the into-stage twin (R3-159)", () => {
+  const offer = { task: "open-project", version: "1.0", label: "Open as board" };
+
+  it("offers a launch-declared contract with the FIXED product label", () => {
+    expect(opensInPlaceOffer(offer, { launchable: ["open-project"] })).toEqual({
+      task: "open-project",
+      version: "1.0",
+      label: "Open in place",
+    });
+  });
+
+  it("never lets the marker's kind reach the in-place label", () => {
+    // The for-result label is author text ("Open as board"); the in-place verb is
+    // the product's. A hostile kind cannot ride it.
+    const hostile = { task: "open-project", version: "1.0", label: "Open as <img>" };
+    expect(opensInPlaceOffer(hostile, { launchable: ["open-project"] })?.label).toBe(
+      "Open in place",
+    );
+  });
+
+  it("offers nothing for a contract the app may only INVOKE, never launch", () => {
+    const wiki = { task: "open-wiki", version: "1.0", label: "Open as wiki" };
+    expect(opensInPlaceOffer(wiki, { launchable: ["open-project"] })).toBeNull();
+  });
+
+  it("offers nothing when there is no offer to twin", () => {
+    expect(opensInPlaceOffer(null, { launchable: ["open-project"] })).toBeNull();
+  });
+
+  it("cannot be talked into launching anything when the app declares no launches", () => {
+    expect(opensInPlaceOffer(offer, { launchable: [] })).toBeNull();
   });
 });
 

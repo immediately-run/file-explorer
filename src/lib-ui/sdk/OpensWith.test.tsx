@@ -46,6 +46,9 @@ const h = vi.hoisted(() => ({
   readdir: vi.fn<(path: string) => Promise<DirEntry[]>>(() => Promise.resolve([])),
   readFile: vi.fn<(path: string) => Promise<Uint8Array>>(() => Promise.reject(new Error("ENOENT"))),
   invokeTask: vi.fn((): Promise<unknown> => Promise.resolve({ opened: true })),
+  launch: vi.fn((): Promise<unknown> =>
+    Promise.resolve({ launchId: "launch-1", onDismiss: () => () => {} }),
+  ),
 }));
 
 vi.mock("@immediately-run/sdk/sandboxUtils", () => ({
@@ -71,6 +74,7 @@ vi.mock("@immediately-run/sdk", () => ({
   requestMount: vi.fn(() => new Promise(() => {})),
   useRegion: () => null,
   invokeTask: (task: string, params: Record<string, unknown>) => h.invokeTask(task, params),
+  launch: (target: unknown, opts: unknown) => h.launch(target, opts),
   capDir: (ref: { mountId: string; relPath: string }, opts: { mode: "ro" | "rw" }) => ({
     $cap: "dir",
     ...ref,
@@ -127,6 +131,8 @@ beforeEach(() => {
   );
   h.invokeTask.mockReset();
   h.invokeTask.mockResolvedValue({ opened: true });
+  h.launch.mockReset();
+  h.launch.mockResolvedValue({ launchId: "launch-1", onDismiss: () => () => {} });
 });
 
 afterEach(() => vi.clearAllMocks());
@@ -234,4 +240,72 @@ describe("R3-267 — a folder's opensWith marker finally has a caller", () => {
       h.readFile.mock.calls.filter((c) => c[0] === "/spaces/s1/handbook/immediately.run.json").length,
     ).toBe(after);
   });
+});
+
+describe("R3-159 — a launchable marker ALSO gets the into-stage affordance", () => {
+  it("offers 'Open in place' for an open-project folder and LAUNCHES it into the stage", async () => {
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+    await screen.findByText("board");
+    await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/board/immediately.run.json"));
+
+    const menu = await menuFor("board");
+    await user.click(within(menu).getByRole("menuitem", { name: /Open in place/ }));
+
+    expect(h.launch).toHaveBeenCalledTimes(1);
+    const [target, opts] = h.launch.mock.calls[0] as [
+      { task: string },
+      { region: string; input: { dir: Record<string, unknown> } },
+    ];
+    expect(target).toEqual({ task: "open-project" });
+    expect(opts.region).toBe("stage");
+    // R-SAL-6: the into-stage delegation is ro even though this mount is rw.
+    expect(opts.input.dir).toEqual({ $cap: "dir", mountId: "space:s1", relPath: "/board", mode: "ro" });
+    // …and the for-result invoke never fired.
+    expect(h.invokeTask).not.toHaveBeenCalled();
+  });
+
+  it("offers BOTH affordances for a launchable contract — the for-result one leads", async () => {
+    render(<FileExplorer />);
+    await screen.findByText("board");
+    await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/board/immediately.run.json"));
+
+    expect(menuLabelsFor("board")).toEqual(
+      expect.arrayContaining(["Open as board", "Open in place"]),
+    );
+    const labels = menuLabelsFor("board");
+    expect(labels.indexOf("Open as board")).toBeLessThan(labels.indexOf("Open in place"));
+  });
+
+  it("an invoke-only contract (open-wiki) gets NO in-place affordance", async () => {
+    render(<FileExplorer />);
+    await screen.findByText("handbook");
+    await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/handbook/immediately.run.json"));
+
+    const labels = menuLabelsFor("handbook");
+    expect(labels).toContain("Open as wiki");
+    expect(labels).not.toContain("Open in place");
+  });
+
+  it.each(["forbidden", "unsupported"])(
+    "a launch refusal (%s) leaves BOTH affordances in place — no launch code withdraws",
+    async (code) => {
+      // `forbidden` is the fork case; `unsupported` doubles as a transient host
+      // state (launch host not yet mounted), so it cannot be a session-permanent
+      // verdict either. The decline is invisible — no protocol code on screen.
+      h.launch.mockResolvedValue({ ok: false, code });
+      const user = userEvent.setup();
+      render(<FileExplorer />);
+      await screen.findByText("board");
+      await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/board/immediately.run.json"));
+
+      await user.click(within(await menuFor("board")).getByRole("menuitem", { name: /Open in place/ }));
+      await waitFor(() => expect(h.launch).toHaveBeenCalledTimes(1));
+
+      const labels = menuLabelsFor("board");
+      expect(labels).toContain("Open in place");
+      expect(labels).toContain("Open as board");
+      expect(screen.queryByText(new RegExp(code))).not.toBeInTheDocument();
+    },
+  );
 });

@@ -9,8 +9,9 @@ export { sdkFsSource, readdir, readFile, fsAvailable } from "./mountFs";
 export { makeSdkActions } from "./actions";
 export { toExplorerRoot } from "./mounts";
 // R3-267: the `opensWith` caller — the marker probe, the invoke, and the hook that
-// wires both into an explorer's fs.
-export { DECLARED_TASKS, MAX_MARKER_BYTES, openWith, probeOffer, readMarker } from "./openWith";
+// wires both into an explorer's fs. R3-159 adds the into-stage twin (the launch
+// actor + its declared-contract list), so a consumer offered `inPlaceFor` can act on it.
+export { DECLARED_TASKS, DECLARED_LAUNCHES, MAX_MARKER_BYTES, openInPlace, openWith, probeOffer, readMarker } from "./openWith";
 export type { OpenWithOutcome } from "./openWith";
 export { useOpensWith, MAX_PROBES_PER_LISTING } from "./useOpensWith";
 export type { OpensWithState } from "./useOpensWith";

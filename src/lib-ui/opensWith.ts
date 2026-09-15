@@ -119,6 +119,39 @@ export function opensWithOffer(
   return { task: marker.task, version: marker.version, label: openWithLabel(marker.kind) };
 }
 
+/** What the app may currently LAUNCH into the stage (R3-159). Data, like
+ *  {@link OpensWithPolicy} — `launchable` mirrors the `launches` manifest block. */
+export interface OpensInPlacePolicy {
+  /** The task contracts this app declares it launches (its `launches` manifest). */
+  launchable: readonly string[];
+}
+
+/**
+ * The into-stage twin of an open-with offer (R3-159): run the folder's project
+ * TO-RUN in the stage region, replacing the focal app, rather than opening it
+ * for-result. Offered only for a contract this app declares it LAUNCHES — one it
+ * may merely invoke gets the for-result affordance alone, and a folder with no
+ * offer gets nothing (an absent affordance, never an error).
+ *
+ * The label is FIXED, never derived from the marker's `kind`: the verb is the
+ * product's ("open in place"), and the less untrusted text reaches a menu the
+ * better.
+ *
+ * Unlike the for-result offer there is NO session withdrawal here: the host
+ * resolves `unsupported` — the only launch code that could be a contract verdict —
+ * for transient states too (the launch host not yet mounted, an absent launch
+ * context, a create failing before bind), so no `LaunchErrorCode` is a safe
+ * session-permanent verdict and a refusal simply leaves the affordance standing.
+ */
+export function opensInPlaceOffer(
+  offer: OpensWithOffer | null,
+  policy: OpensInPlacePolicy,
+): OpensWithOffer | null {
+  if (!offer) return null;
+  if (!policy.launchable.includes(offer.task)) return null;
+  return { task: offer.task, version: offer.version, label: "Open in place" };
+}
+
 /**
  * Should a refusal WITHDRAW the affordance for this contract for the rest of the
  * session, or was it about this one attempt?

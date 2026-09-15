@@ -50,15 +50,17 @@ export {
 export type { MountKind, MountScope, Crumb, MovePayload } from "./explorer";
 
 // R3-267: the `opensWith` decision — pure, so any file manager built on this library
-// can offer a marked folder without re-deriving the rules.
+// can offer a marked folder without re-deriving the rules. R3-159 adds the
+// into-stage twin (`opensInPlaceOffer` — launchable-only, fixed product label).
 export {
   CONTENT_MARKER_FILE,
   openWithLabel,
+  opensInPlaceOffer,
   opensWithOffer,
   parseOpensWith,
   withdrawsOffer,
 } from "./opensWith";
-export type { OpensWithMarker, OpensWithOffer, OpensWithPolicy } from "./opensWith";
+export type { OpensWithMarker, OpensWithOffer, OpensWithPolicy, OpensInPlacePolicy } from "./opensWith";
 
 export { extOf, fileTypeLabel, compareEntries } from "./entryMeta";
 export type { SortKey, SortableEntry } from "./entryMeta";

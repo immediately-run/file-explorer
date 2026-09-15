@@ -3,7 +3,7 @@
 //
 // The DECISION is in `../opensWith` (pure, host-free). This file is the wiring: the
 // declared contract list, the probe that reads a directory's marker, and the invoke.
-import { invokeTask, capDir } from "@immediately-run/sdk";
+import { invokeTask, capDir, launch } from "@immediately-run/sdk";
 import { CONTENT_MARKER_FILE, opensWithOffer, withdrawsOffer } from "../opensWith";
 import type { OpensWithOffer } from "../opensWith";
 import { grantedModeAt, joinPath, toMountRel } from "../explorer";
@@ -21,6 +21,15 @@ import type { ExplorerRoot, FsSource } from "../types";
  * one is this line plus the manifest, and the marker's own `kind` supplies the label.
  */
 export const DECLARED_TASKS = ["open-wiki", "open-project"] as const;
+
+/**
+ * The task contracts this app declares it LAUNCHES to-run into the stage (R3-159).
+ *
+ * **This list MUST mirror `immediately.run.launches` in package.json**, and the same
+ * drift test pins it — the host refuses an undeclared launch target (R-SAL-3), so a
+ * contract missing from the manifest would be offered and then refused.
+ */
+export const DECLARED_LAUNCHES = ["open-project"] as const;
 
 /** Read a directory's marker text, or null when it carries none / is unreadable. */
 export async function readMarker(fs: FsSource, dirAbsPath: string): Promise<string | null> {
@@ -84,5 +93,51 @@ export async function openWith(
   } catch (e) {
     const code = (e as { code?: string } | null)?.code;
     return withdrawsOffer(code) ? { status: "withdraw", task: offer.task } : { status: "declined" };
+  }
+}
+
+/**
+ * "Open in place" (R3-159) — LAUNCH the contract a folder's marker names TO-RUN in
+ * the STAGE region (STANDING_APP_LIFECYCLE §7 into-stage), replacing the focal app,
+ * via `launch` rather than the for-result `invokeTask`. This panel runs under an
+ * `editor.*` principal, so the host admits `region: 'stage'` (R-SAL-5: a
+ * stage-principal caller is refused `forbidden` — and so is a URL-loaded fork,
+ * whose click simply declines).
+ *
+ * Unlike {@link openWith} the delegated `capDir` is ALWAYS `ro` (R-SAL-6): the
+ * launched app RUNS on the folder, it does not edit it, and the rw-into-stage host
+ * confirm (scope+mode) is a follow-on — the `ro` default ships.
+ *
+ * Same outcome shape as `openWith`, but a refusal NEVER withdraws: the launch
+ * vocabulary (SDK §8 `LaunchErrorCode`) has no code that is a safe
+ * session-permanent verdict — `unsupported`, the nearest thing to "nothing is
+ * bound to this contract", is also resolved for transient host states (the launch
+ * host not yet mounted, an absent launch context, a create failing before bind),
+ * so withdrawing on it would strand the affordance for the rest of the session
+ * over a state that clears. Every refusal — fork `forbidden`, `budget`, a user
+ * dismiss, a transient `unsupported` — declines and leaves the affordance
+ * standing; the decline is invisible (fire-and-forget, no error surface).
+ */
+export async function openInPlace(
+  root: ExplorerRoot,
+  dirAbsPath: string,
+  offer: OpensWithOffer,
+): Promise<OpenWithOutcome> {
+  const relPath = toMountRel(root.path, dirAbsPath);
+  try {
+    // `launch` resolves `{ ok:false, code }` for an ordinary refusal instead of
+    // throwing; off-host (plain `vite dev`) it REJECTS ("no host transport") —
+    // ordinary too, so the catch below is the same shape as openWith's.
+    const res = await launch(
+      { task: offer.task },
+      {
+        region: "stage",
+        input: { dir: capDir({ mountId: root.id, relPath }, { mode: "ro" }) },
+      },
+    );
+    if ("ok" in res && res.ok === false) return { status: "declined" };
+    return { status: "opened" };
+  } catch {
+    return { status: "declined" };
   }
 }
