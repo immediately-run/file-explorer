@@ -15,6 +15,12 @@
         "version": "^1"
       }
     ],
+    "launches": [
+      {
+        "task": "open-project",
+        "version": "^1"
+      }
+    ],
     "requests": {
       "llm:chat": {},
       "task:invoke": {}

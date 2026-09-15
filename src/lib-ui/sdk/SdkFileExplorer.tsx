@@ -8,7 +8,7 @@
 // The existing FileExplorer test suite renders THIS and keeps the same SDK mocks —
 // the parity proof that the extraction is behavior-preserving.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FolderTree, Eye, EyeOff, Plus, Users, BookOpen } from "lucide-react";
+import { FolderTree, Eye, EyeOff, Plus, Users, BookOpen, Play } from "lucide-react";
 import {
   useEditorContext,
   listSettingsApps,
@@ -28,7 +28,7 @@ import { sdkFsSource } from "./mountFs";
 import { makeSdkActions } from "./actions";
 import { summarizeMenuItems } from "./summarize";
 import { useOpensWith } from "./useOpensWith";
-import { openWith } from "./openWith";
+import { openWith, openInPlace } from "./openWith";
 import SummaryModal, { type SummaryTarget } from "./SummaryModal";
 import type { ExplorerActions, MenuItem, RowCtx } from "../types";
 
@@ -144,7 +144,9 @@ function SdkFileExplorer() {
 
   // R3-267: the `opensWith` caller. The wrapped fs probes each listed directory for
   // its content marker, so a folder that declares what opens it can be offered one.
-  const { fs: opensWithFs, offerFor, withdraw } = useOpensWith(sdkFsSource);
+  // R3-159 adds the into-stage twin: a launchable contract also gets "Open in place".
+  const { fs: opensWithFs, offerFor, inPlaceFor, withdraw, withdrawInPlace } =
+    useOpensWith(sdkFsSource);
   const rootByPath = useCallback(
     (absPath: string) => shownRoots.find((r) => absPath === r.path || absPath.startsWith(`${r.path}/`)) ?? null,
     [shownRoots],
@@ -163,6 +165,20 @@ function SdkFileExplorer() {
     },
     [rootByPath, offerFor, withdraw],
   );
+  // R3-159: fire-and-forget like runOpenWith — the host draws the into-stage overlay
+  // and the suspend/restore. A contract-level launch refusal withdraws ONLY the
+  // in-place affordance; the for-result offer for the same contract stands.
+  const runOpenInPlace = useCallback(
+    (absPath: string) => {
+      const root = rootByPath(absPath);
+      const offer = inPlaceFor(absPath);
+      if (!root || !offer) return;
+      void openInPlace(root, absPath, offer).then((outcome) => {
+        if (outcome.status === "withdraw") withdrawInPlace(outcome.task);
+      });
+    },
+    [rootByPath, inPlaceFor, withdrawInPlace],
+  );
 
   const extraMenuItems = useCallback((ctx: RowCtx): MenuItem[] => {
     const items = summarizeMenuItems(ctx, setSummary);
@@ -170,13 +186,28 @@ function SdkFileExplorer() {
     // reaches this code, so a folder declaring a later contract works with no change
     // here (only a manifest entry, which the host enforces anyway).
     const offer = ctx.isDir ? offerFor(ctx.absPath) : null;
-    if (offer) {
-      items.unshift({
-        key: "open-with",
-        label: offer.label,
-        icon: <BookOpen size={14} aria-hidden="true" />,
-        onSelect: () => runOpenWith(ctx.absPath),
-      });
+    const inPlace = ctx.isDir ? inPlaceFor(ctx.absPath) : null;
+    if (offer || inPlace) {
+      // Unshifted as a pair so the for-result offer leads and the into-stage twin
+      // (R3-159) sits directly under it, above everything else the menu offers.
+      const openItems: MenuItem[] = [];
+      if (offer) {
+        openItems.push({
+          key: "open-with",
+          label: offer.label,
+          icon: <BookOpen size={14} aria-hidden="true" />,
+          onSelect: () => runOpenWith(ctx.absPath),
+        });
+      }
+      if (inPlace) {
+        openItems.push({
+          key: "open-in-place",
+          label: inPlace.label,
+          icon: <Play size={14} aria-hidden="true" />,
+          onSelect: () => runOpenInPlace(ctx.absPath),
+        });
+      }
+      items.unshift(...openItems);
     }
     // R3-269 D4: the per-space "Manage sharing →" entry point, on the space's ROOT row
     // only. Opens the full-tab space-manager AT that space — the verbs live there.
@@ -192,7 +223,7 @@ function SdkFileExplorer() {
       });
     }
     return items;
-  }, [offerFor, runOpenWith]);
+  }, [offerFor, inPlaceFor, runOpenWith, runOpenInPlace]);
 
   // Apps with per-user settings that aren't mounted yet — click to open
   // (`settings:all`). An already-opened settings mount renders as its own root
