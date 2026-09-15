@@ -195,8 +195,8 @@ describe("openInPlace — run the folder's project TO-RUN in the stage (R3-159)"
     await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({ status: "declined" });
   });
 
-  it("withdraws a contract the launch path reports as structurally dead", async () => {
-    launch.mockResolvedValue({ ok: false, code: "not-declared" });
+  it("withdraws a contract the launch path reports as unbound (unsupported)", async () => {
+    launch.mockResolvedValue({ ok: false, code: "unsupported" });
     await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({
       status: "withdraw",
       task: "open-project",
@@ -206,7 +206,16 @@ describe("openInPlace — run the folder's project TO-RUN in the stage (R3-159)"
   it("never throws — an off-host rejection is ordinary too", async () => {
     launch.mockRejectedValue(new Error("no host transport"));
     await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({ status: "declined" });
-    launch.mockRejectedValue(Object.assign(new Error("nope"), { code: "no-such-task" }));
+  });
+
+  it("pins the whole LaunchErrorCode union — only `unsupported` withdraws", async () => {
+    for (const code of ["forbidden", "budget", "revoked", "cancelled", "invalid-params", "unknown"]) {
+      launch.mockResolvedValue({ ok: false, code });
+      await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({
+        status: "declined",
+      });
+    }
+    launch.mockResolvedValue({ ok: false, code: "unsupported" });
     await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({
       status: "withdraw",
       task: "open-project",

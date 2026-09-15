@@ -163,3 +163,21 @@ export function opensInPlaceOffer(
 export function withdrawsOffer(code: string | undefined): boolean {
   return code === "no-such-task" || code === "not-declared" || code === "task-version-mismatch";
 }
+
+/**
+ * Should a LAUNCH refusal withdraw the in-place affordance (R3-159) — the launch
+ * twin of {@link withdrawsOffer}, cut against the real `LaunchErrorCode` vocabulary
+ * (SDK §8), NOT the invoke one above: a refused `launch` resolves one of
+ * `forbidden | unsupported | budget | revoked | cancelled | invalid-params |
+ * unknown`, so matching the invoke codes here would be a dead branch.
+ *
+ * `unsupported` is the only contract-level verdict — no provider is bound to the
+ * contract (or the version is unknown), so every click refuses identically and the
+ * honest response is to stop offering. Everything else is a state of this session
+ * or this attempt: `forbidden` (a fork, or the stage cap absent), `budget`,
+ * `revoked`, `cancelled` (the user dismissed the host's own launch affordance),
+ * `invalid-params`, `unknown` — the offer stays.
+ */
+export function withdrawsInPlaceOffer(code: string | undefined): boolean {
+  return code === "unsupported";
+}

@@ -4,7 +4,7 @@
 // The DECISION is in `../opensWith` (pure, host-free). This file is the wiring: the
 // declared contract list, the probe that reads a directory's marker, and the invoke.
 import { invokeTask, capDir, launch } from "@immediately-run/sdk";
-import { CONTENT_MARKER_FILE, opensWithOffer, withdrawsOffer } from "../opensWith";
+import { CONTENT_MARKER_FILE, opensWithOffer, withdrawsOffer, withdrawsInPlaceOffer } from "../opensWith";
 import type { OpensWithOffer } from "../opensWith";
 import { grantedModeAt, joinPath, toMountRel } from "../explorer";
 import type { ExplorerRoot, FsSource } from "../types";
@@ -109,8 +109,11 @@ export async function openWith(
  * confirm (scope+mode) is a follow-on — the `ro` default ships.
  *
  * Same outcome contract as `openWith`: never throws and never surfaces a protocol
- * code — a contract-level refusal withdraws the in-place affordance (the
- * for-result one is unaffected), anything else leaves it standing.
+ * code. The refusal mapping is cut against the LAUNCH vocabulary (SDK §8
+ * `LaunchErrorCode`), not the invoke one — `unsupported` (nothing bound to the
+ * contract) is the one verdict that withdraws the in-place affordance, while the
+ * for-result offer for the same contract is unaffected; every other code leaves
+ * it standing.
  */
 export async function openInPlace(
   root: ExplorerRoot,
@@ -130,13 +133,15 @@ export async function openInPlace(
       },
     );
     if ("ok" in res && res.ok === false) {
-      return withdrawsOffer(res.code)
+      return withdrawsInPlaceOffer(res.code)
         ? { status: "withdraw", task: offer.task }
         : { status: "declined" };
     }
     return { status: "opened" };
   } catch (e) {
     const code = (e as { code?: string } | null)?.code;
-    return withdrawsOffer(code) ? { status: "withdraw", task: offer.task } : { status: "declined" };
+    return withdrawsInPlaceOffer(code)
+      ? { status: "withdraw", task: offer.task }
+      : { status: "declined" };
   }
 }

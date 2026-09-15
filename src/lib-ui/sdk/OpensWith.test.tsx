@@ -302,8 +302,8 @@ describe("R3-159 — a launchable marker ALSO gets the into-stage affordance", (
     expect(labels).toContain("Open as board");
   });
 
-  it("a contract-level launch refusal withdraws ONLY the in-place affordance", async () => {
-    h.launch.mockResolvedValue({ ok: false, code: "not-declared" });
+  it("a contract-level launch refusal (unsupported) withdraws ONLY the in-place affordance", async () => {
+    h.launch.mockResolvedValue({ ok: false, code: "unsupported" });
     const user = userEvent.setup();
     render(<FileExplorer />);
     await screen.findByText("board");
@@ -319,6 +319,6 @@ describe("R3-159 — a launchable marker ALSO gets the into-stage affordance", (
       expect(labels).not.toContain("Open in place");
       expect(labels).toContain("Open as board");
     });
-    expect(screen.queryByText(/not-declared/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/unsupported/)).not.toBeInTheDocument();
   });
 });

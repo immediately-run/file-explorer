@@ -33,7 +33,7 @@
     "./styles.css": "./src/lib-ui/styles.css"
   },
   "peerDependencies": {
-    "@immediately-run/sdk": "^0.25.0",
+    "@immediately-run/sdk": "^0.35.0",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

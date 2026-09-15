@@ -4,6 +4,7 @@ import {
   opensInPlaceOffer,
   opensWithOffer,
   parseOpensWith,
+  withdrawsInPlaceOffer,
   withdrawsOffer,
 } from "./opensWith";
 
@@ -159,6 +160,28 @@ describe("opensInPlaceOffer — the into-stage twin (R3-159)", () => {
 
   it("cannot be talked into launching anything when the app declares no launches", () => {
     expect(opensInPlaceOffer(offer, { launchable: [] })).toBeNull();
+  });
+});
+
+describe("withdrawsInPlaceOffer — cut against the LAUNCH vocabulary (R3-159)", () => {
+  // A refused `launch` resolves a `LaunchErrorCode` (SDK §8), never the invokeTask
+  // codes withdrawsOffer matches — pinning every code of the union keeps the two
+  // vocabularies from being cross-wired again.
+  it("withdraws only on `unsupported` — nothing bound to the contract", () => {
+    expect(withdrawsInPlaceOffer("unsupported")).toBe(true);
+  });
+
+  it.each(["forbidden", "budget", "revoked", "cancelled", "invalid-params", "unknown"])(
+    "keeps offering after `%s` — a state of this session or this attempt",
+    (code) => {
+      expect(withdrawsInPlaceOffer(code)).toBe(false);
+    },
+  );
+
+  it("keeps offering on invoke-vocabulary and absent codes (never reachable, never fatal)", () => {
+    expect(withdrawsInPlaceOffer("no-such-task")).toBe(false);
+    expect(withdrawsInPlaceOffer("not-declared")).toBe(false);
+    expect(withdrawsInPlaceOffer(undefined)).toBe(false);
   });
 });
 
