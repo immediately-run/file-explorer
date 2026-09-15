@@ -287,38 +287,25 @@ describe("R3-159 — a launchable marker ALSO gets the into-stage affordance", (
     expect(labels).not.toContain("Open in place");
   });
 
-  it("a launch refusal (fork → forbidden) leaves BOTH affordances in place", async () => {
-    h.launch.mockResolvedValue({ ok: false, code: "forbidden" });
-    const user = userEvent.setup();
-    render(<FileExplorer />);
-    await screen.findByText("board");
-    await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/board/immediately.run.json"));
+  it.each(["forbidden", "unsupported"])(
+    "a launch refusal (%s) leaves BOTH affordances in place — no launch code withdraws",
+    async (code) => {
+      // `forbidden` is the fork case; `unsupported` doubles as a transient host
+      // state (launch host not yet mounted), so it cannot be a session-permanent
+      // verdict either. The decline is invisible — no protocol code on screen.
+      h.launch.mockResolvedValue({ ok: false, code });
+      const user = userEvent.setup();
+      render(<FileExplorer />);
+      await screen.findByText("board");
+      await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/board/immediately.run.json"));
 
-    await user.click(within(await menuFor("board")).getByRole("menuitem", { name: /Open in place/ }));
-    await waitFor(() => expect(h.launch).toHaveBeenCalledTimes(1));
+      await user.click(within(await menuFor("board")).getByRole("menuitem", { name: /Open in place/ }));
+      await waitFor(() => expect(h.launch).toHaveBeenCalledTimes(1));
 
-    const labels = menuLabelsFor("board");
-    expect(labels).toContain("Open in place");
-    expect(labels).toContain("Open as board");
-  });
-
-  it("a contract-level launch refusal (unsupported) withdraws ONLY the in-place affordance", async () => {
-    h.launch.mockResolvedValue({ ok: false, code: "unsupported" });
-    const user = userEvent.setup();
-    render(<FileExplorer />);
-    await screen.findByText("board");
-    await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/board/immediately.run.json"));
-
-    await user.click(within(await menuFor("board")).getByRole("menuitem", { name: /Open in place/ }));
-    await waitFor(() => expect(h.launch).toHaveBeenCalledTimes(1));
-
-    // The dead launch affordance withdraws; the for-result offer for the SAME
-    // contract stands (invoke and launch are separate manifest declarations).
-    await waitFor(() => {
       const labels = menuLabelsFor("board");
-      expect(labels).not.toContain("Open in place");
+      expect(labels).toContain("Open in place");
       expect(labels).toContain("Open as board");
-    });
-    expect(screen.queryByText(/unsupported/)).not.toBeInTheDocument();
-  });
+      expect(screen.queryByText(new RegExp(code))).not.toBeInTheDocument();
+    },
+  );
 });

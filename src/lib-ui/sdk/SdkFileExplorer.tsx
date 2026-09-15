@@ -145,8 +145,7 @@ function SdkFileExplorer() {
   // R3-267: the `opensWith` caller. The wrapped fs probes each listed directory for
   // its content marker, so a folder that declares what opens it can be offered one.
   // R3-159 adds the into-stage twin: a launchable contract also gets "Open in place".
-  const { fs: opensWithFs, offerFor, inPlaceFor, withdraw, withdrawInPlace } =
-    useOpensWith(sdkFsSource);
+  const { fs: opensWithFs, offerFor, inPlaceFor, withdraw } = useOpensWith(sdkFsSource);
   const rootByPath = useCallback(
     (absPath: string) => shownRoots.find((r) => absPath === r.path || absPath.startsWith(`${r.path}/`)) ?? null,
     [shownRoots],
@@ -166,18 +165,16 @@ function SdkFileExplorer() {
     [rootByPath, offerFor, withdraw],
   );
   // R3-159: fire-and-forget like runOpenWith — the host draws the into-stage overlay
-  // and the suspend/restore. A contract-level launch refusal withdraws ONLY the
-  // in-place affordance; the for-result offer for the same contract stands.
+  // and the suspend/restore. A launch refusal just declines (invisibly): no launch
+  // code is a session-permanent verdict, so the affordance always stays.
   const runOpenInPlace = useCallback(
     (absPath: string) => {
       const root = rootByPath(absPath);
       const offer = inPlaceFor(absPath);
       if (!root || !offer) return;
-      void openInPlace(root, absPath, offer).then((outcome) => {
-        if (outcome.status === "withdraw") withdrawInPlace(outcome.task);
-      });
+      void openInPlace(root, absPath, offer);
     },
-    [rootByPath, inPlaceFor, withdrawInPlace],
+    [rootByPath, inPlaceFor],
   );
 
   const extraMenuItems = useCallback((ctx: RowCtx): MenuItem[] => {

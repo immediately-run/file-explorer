@@ -4,7 +4,7 @@
 // The DECISION is in `../opensWith` (pure, host-free). This file is the wiring: the
 // declared contract list, the probe that reads a directory's marker, and the invoke.
 import { invokeTask, capDir, launch } from "@immediately-run/sdk";
-import { CONTENT_MARKER_FILE, opensWithOffer, withdrawsOffer, withdrawsInPlaceOffer } from "../opensWith";
+import { CONTENT_MARKER_FILE, opensWithOffer, withdrawsOffer } from "../opensWith";
 import type { OpensWithOffer } from "../opensWith";
 import { grantedModeAt, joinPath, toMountRel } from "../explorer";
 import type { ExplorerRoot, FsSource } from "../types";
@@ -108,12 +108,15 @@ export async function openWith(
  * launched app RUNS on the folder, it does not edit it, and the rw-into-stage host
  * confirm (scope+mode) is a follow-on — the `ro` default ships.
  *
- * Same outcome contract as `openWith`: never throws and never surfaces a protocol
- * code. The refusal mapping is cut against the LAUNCH vocabulary (SDK §8
- * `LaunchErrorCode`), not the invoke one — `unsupported` (nothing bound to the
- * contract) is the one verdict that withdraws the in-place affordance, while the
- * for-result offer for the same contract is unaffected; every other code leaves
- * it standing.
+ * Same outcome shape as `openWith`, but a refusal NEVER withdraws: the launch
+ * vocabulary (SDK §8 `LaunchErrorCode`) has no code that is a safe
+ * session-permanent verdict — `unsupported`, the nearest thing to "nothing is
+ * bound to this contract", is also resolved for transient host states (the launch
+ * host not yet mounted, an absent launch context, a create failing before bind),
+ * so withdrawing on it would strand the affordance for the rest of the session
+ * over a state that clears. Every refusal — fork `forbidden`, `budget`, a user
+ * dismiss, a transient `unsupported` — declines and leaves the affordance
+ * standing; the decline is invisible (fire-and-forget, no error surface).
  */
 export async function openInPlace(
   root: ExplorerRoot,
@@ -132,16 +135,9 @@ export async function openInPlace(
         input: { dir: capDir({ mountId: root.id, relPath }, { mode: "ro" }) },
       },
     );
-    if ("ok" in res && res.ok === false) {
-      return withdrawsInPlaceOffer(res.code)
-        ? { status: "withdraw", task: offer.task }
-        : { status: "declined" };
-    }
+    if ("ok" in res && res.ok === false) return { status: "declined" };
     return { status: "opened" };
-  } catch (e) {
-    const code = (e as { code?: string } | null)?.code;
-    return withdrawsInPlaceOffer(code)
-      ? { status: "withdraw", task: offer.task }
-      : { status: "declined" };
+  } catch {
+    return { status: "declined" };
   }
 }

@@ -186,39 +186,31 @@ describe("openInPlace — run the folder's project TO-RUN in the stage (R3-159)"
     expect(capDir).toHaveBeenCalledWith({ mountId: "space:abc", relPath: "/proj" }, { mode: "ro" });
   });
 
-  it("treats a refusal-resolved launch as ordinary — the affordance stays", async () => {
-    // A fork (no elevated principal) gets `forbidden`; a full stage gets `budget`.
-    // Both are states, not verdicts on the contract.
-    launch.mockResolvedValue({ ok: false, code: "forbidden" });
-    await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({ status: "declined" });
-    launch.mockResolvedValue({ ok: false, code: "budget" });
-    await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({ status: "declined" });
-  });
-
-  it("withdraws a contract the launch path reports as unbound (unsupported)", async () => {
-    launch.mockResolvedValue({ ok: false, code: "unsupported" });
-    await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({
-      status: "withdraw",
-      task: "open-project",
-    });
-  });
-
-  it("never throws — an off-host rejection is ordinary too", async () => {
-    launch.mockRejectedValue(new Error("no host transport"));
-    await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({ status: "declined" });
-  });
-
-  it("pins the whole LaunchErrorCode union — only `unsupported` withdraws", async () => {
-    for (const code of ["forbidden", "budget", "revoked", "cancelled", "invalid-params", "unknown"]) {
+  it("pins the whole LaunchErrorCode union — EVERY refusal declines, none withdraws", async () => {
+    // The host resolves `unsupported` for transient states too (launch host not yet
+    // mounted, absent launch context, create failing before bind), so no launch code
+    // is a safe session-permanent verdict — a fork's `forbidden` and a full stage's
+    // `budget` included, the affordance always stays.
+    for (const code of [
+      "forbidden",
+      "unsupported",
+      "budget",
+      "revoked",
+      "cancelled",
+      "invalid-params",
+      "unknown",
+    ]) {
       launch.mockResolvedValue({ ok: false, code });
       await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({
         status: "declined",
       });
     }
-    launch.mockResolvedValue({ ok: false, code: "unsupported" });
-    await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({
-      status: "withdraw",
-      task: "open-project",
-    });
+  });
+
+  it("never throws — an off-host rejection is ordinary too", async () => {
+    launch.mockRejectedValue(new Error("no host transport"));
+    await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({ status: "declined" });
+    launch.mockRejectedValue(Object.assign(new Error("nope"), { code: "unsupported" }));
+    await expect(openInPlace(root(), "/spaces/abc/proj", offer)).resolves.toEqual({ status: "declined" });
   });
 });

@@ -124,9 +124,6 @@ export function opensWithOffer(
 export interface OpensInPlacePolicy {
   /** The task contracts this app declares it launches (its `launches` manifest). */
   launchable: readonly string[];
-  /** Contracts whose launch the host refused this session — the in-place affordance
-   *  withdraws itself, independently of the for-result one. */
-  unavailable?: ReadonlySet<string>;
 }
 
 /**
@@ -139,6 +136,12 @@ export interface OpensInPlacePolicy {
  * The label is FIXED, never derived from the marker's `kind`: the verb is the
  * product's ("open in place"), and the less untrusted text reaches a menu the
  * better.
+ *
+ * Unlike the for-result offer there is NO session withdrawal here: the host
+ * resolves `unsupported` — the only launch code that could be a contract verdict —
+ * for transient states too (the launch host not yet mounted, an absent launch
+ * context, a create failing before bind), so no `LaunchErrorCode` is a safe
+ * session-permanent verdict and a refusal simply leaves the affordance standing.
  */
 export function opensInPlaceOffer(
   offer: OpensWithOffer | null,
@@ -146,7 +149,6 @@ export function opensInPlaceOffer(
 ): OpensWithOffer | null {
   if (!offer) return null;
   if (!policy.launchable.includes(offer.task)) return null;
-  if (policy.unavailable?.has(offer.task)) return null;
   return { task: offer.task, version: offer.version, label: "Open in place" };
 }
 
@@ -164,20 +166,4 @@ export function withdrawsOffer(code: string | undefined): boolean {
   return code === "no-such-task" || code === "not-declared" || code === "task-version-mismatch";
 }
 
-/**
- * Should a LAUNCH refusal withdraw the in-place affordance (R3-159) — the launch
- * twin of {@link withdrawsOffer}, cut against the real `LaunchErrorCode` vocabulary
- * (SDK §8), NOT the invoke one above: a refused `launch` resolves one of
- * `forbidden | unsupported | budget | revoked | cancelled | invalid-params |
- * unknown`, so matching the invoke codes here would be a dead branch.
- *
- * `unsupported` is the only contract-level verdict — no provider is bound to the
- * contract (or the version is unknown), so every click refuses identically and the
- * honest response is to stop offering. Everything else is a state of this session
- * or this attempt: `forbidden` (a fork, or the stage cap absent), `budget`,
- * `revoked`, `cancelled` (the user dismissed the host's own launch affordance),
- * `invalid-params`, `unknown` — the offer stays.
- */
-export function withdrawsInPlaceOffer(code: string | undefined): boolean {
-  return code === "unsupported";
-}
+
