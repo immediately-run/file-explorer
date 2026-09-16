@@ -1,3 +1,9 @@
+// R3-653 fault injection #4 (reverted by the next commit): a core file importing an
+// SDK SUBPATH — the form the purity guard MISSED until this PR widened its regex.
+// Injection #3 planted the bare specifier, which the old pattern already refused.
+import { addListener } from "@immediately-run/sdk/sandboxUtils";
+export const injectedListener = addListener;
+
 // The library's injected interfaces — the extension points the headless
 // `FileExplorerView` is built on (00-overview §3.1). These are pure type
 // declarations: NO React, NO SDK import. A consumer maps its own data (the SDK
