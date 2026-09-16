@@ -1,3 +1,9 @@
+// R3-653 fault injection #3 (reverted by the next commit): a core file importing the
+// SDK, which `npm run check:core` exists to refuse. `src/lib-ui/` may not depend on
+// `@immediately-run/sdk` outside `src/lib-ui/sdk/`.
+import type { HostTheme } from "@immediately-run/sdk";
+export type InjectedThemeAlias = HostTheme;
+
 // The library's injected interfaces — the extension points the headless
 // `FileExplorerView` is built on (00-overview §3.1). These are pure type
 // declarations: NO React, NO SDK import. A consumer maps its own data (the SDK
