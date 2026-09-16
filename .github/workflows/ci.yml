@@ -15,13 +15,13 @@ permissions:
   contents: read
 
 # A newer push to the same ref supersedes an in-flight run — on a PR branch only. A push
-# run gets its OWN group (the SHA), so it can never be cancelled by a later merge.
+# run gets its own group (the SHA), so it can never be cancelled by a later merge.
 #
 # This was `group: ci-${{ github.ref }}` with `cancel-in-progress: true`, which cancelled
 # a `main` run the moment the next merge landed: the superseded commit was left with a
 # CANCELLED verdict rather than a green one, which matters as soon as a check is required
 # or somebody bisects `main` by check status. `cancel-in-progress: false` alone would not
-# have fixed it either — GitHub keeps at most one PENDING run per group, so a third merge
+# have fixed it either — GitHub keeps at most one pending run per group, so a third merge
 # inside the window still cancels the middle commit's queued run. Keying push runs by SHA
 # is what removes it. (R3-648 proved this on the three repos that copied this file.)
 #
@@ -55,15 +55,15 @@ jobs:
         run: npm run check:core
 
       # `npm run lint` IS the gate: `--max-warnings 0` lives in the script, so the command
-      # a contributor runs and the command CI runs are the same string. R3-653 landed this
-      # step as `npm run lint -- --max-warnings 0` in three sibling repos; keeping the flag
-      # here would mean the documented local command stayed lax and the difference had to
-      # be memorised. Bringing those three across is R3-656.
+      # a contributor runs and the command CI runs are the same string. R3-648 — not this item —
+      # landed the step as `npm run lint -- --max-warnings 0` in three sibling repos; keeping
+      # the flag here would mean the documented local command stayed lax and the difference
+      # had to be memorised. Bringing those three across is R3-656.
       #
       # This step carried an `env: CI: true` block and the comment "ESLint and tooling
-      # treat warnings as errors under CI, matching the deploy-time build gate". BOTH
-      # HALVES WERE FALSE, and three more repos copied the sentence before anyone measured
-      # it (R3-648). Measured here on Node 22.22.2:
+      # treat warnings as errors under CI, matching the deploy-time build gate". Both halves
+      # are false, and three more repos copied the sentence before anyone measured it
+      # (R3-648). Measured here on Node 22.22.2:
       #
       #   $ CI=true npx eslint src/App.tsx --rule '{"max-lines":["warn",1]}'
       #   ✖ 1 problem (0 errors, 1 warning)                       → exit 0
