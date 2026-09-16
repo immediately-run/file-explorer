@@ -1,7 +1,7 @@
-# Continuous integration for the file-explorer app: lint, unit tests (Vitest),
-# and a production build on every pull request and on push to `main`. Keeps the FX
-# regression suite (FileExplorer.test.tsx) green and catches type/build breakage before
-# the cache-zip workflow ships from main.
+# Continuous integration for the file-explorer app: the purity guard, lint, unit tests
+# (Vitest) and a production build — on every pull request, on push to `main`, and on
+# demand via `workflow_dispatch`. Keeps the FX regression suite (FileExplorer.test.tsx)
+# green and catches type/build breakage before the cache-zip workflow ships from main.
 
 name: CI
 
@@ -48,7 +48,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # `--max-warnings 0`, because a warning here is a defect that merges otherwise.
+      # The purity guard the repo already declares: `src/lib-ui/` must not import the SDK
+      # outside `src/lib-ui/sdk/`. `scripts/check-core-pure.mjs` and README both say to
+      # run it in CI alongside lint/build; nothing did. It passes today, so it starts green.
+      - name: Purity guard
+        run: npm run check:core
+
+      # `npm run lint` IS the gate: `--max-warnings 0` lives in the script, so the command
+      # a contributor runs and the command CI runs are the same string. R3-653 landed this
+      # step as `npm run lint -- --max-warnings 0` in three sibling repos; keeping the flag
+      # here would mean the documented local command stayed lax and the difference had to
+      # be memorised. Bringing those three across is R3-656.
       #
       # This step carried an `env: CI: true` block and the comment "ESLint and tooling
       # treat warnings as errors under CI, matching the deploy-time build gate". BOTH
@@ -64,11 +74,12 @@ jobs:
       # `cache.yml` — the only other workflow here — runs `npm ci --ignore-scripts` and the
       # cache-zip publish, no lint and no build, so there was no deploy-time gate to match.
       #
-      # It was load-bearing rather than cosmetic: three rules are warn-level in this repo,
-      # and one of them is `react-hooks/exhaustive-deps` — the rule this repo's own
-      # CLAUDE.md spends a paragraph on. A violation merged with this step green.
+      # It was load-bearing rather than cosmetic: three rules are warn-level here, and one
+      # is `react-hooks/exhaustive-deps` — which this codebase suppresses deliberately at
+      # `src/lib-ui/hooks/useOverlayFocusDismiss.ts:126`, so it is a rule this repo already
+      # reasons about. A violation elsewhere merged with this step green.
       - name: Lint
-        run: npm run lint -- --max-warnings 0
+        run: npm run lint
 
       - name: Test
         run: npm test

@@ -62,6 +62,15 @@ button hides) lives in the view beside `uploadRoot`.
 
 ## Recorded findings (code-verification pass, 2026-06)
 
+> **CLOSED, verified on 2026-09-16 (R3-653).** Both entries below are stale and are kept
+> as the record rather than deleted. `package.json` now pins `@immediately-run/sdk` at
+> `^0.43.0`, the installed `dist/index.d.ts:24` exports `chat`, and `npm run build` exits 0
+> on a branch that differs from `origin/main` only in `ci.yml` — so the `TS2305` failure is
+> gone and the "newest among the bound apps at 0.11.0" skew reading is obsolete. Found
+> while adding CI to this repo: the PR asserted the build passes on `main`, which is the
+> direct negation of the first entry, so leaving it open would have been a claim this
+> repo's own gate contradicts.
+
 - **DONE-BUT-DIVERGENT (CRIT, pre-existing on origin/main) — `chat` not exported
   by the pinned SDK.** The shipped "Summarize" feature (`src/lib-ui/sdk/SummaryModal.tsx:2`
   `import { chat } from "@immediately-run/sdk"`, added in PR #9) does **not**
