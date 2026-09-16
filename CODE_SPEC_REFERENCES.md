@@ -62,8 +62,20 @@ button hides) lives in the view beside `uploadRoot`.
 
 ## Recorded findings (code-verification pass, 2026-06)
 
-- **DONE-BUT-DIVERGENT (CRIT, pre-existing on origin/main) — `chat` not exported
-  by the pinned SDK.** The shipped "Summarize" feature (`src/lib-ui/sdk/SummaryModal.tsx:2`
+> **CLOSED, verified on 2026-09-16 (R3-653).** The two SDK entries below — *DONE-BUT-DIVERGENT
+> (`chat` not exported)* and *SDK-version skew* — are stale and are kept as the record rather
+> than deleted; the third bullet, *Comment vocab fixes applied*, is untouched by this note.
+> `package.json` now pins `@immediately-run/sdk` at `^0.43.0`, the installed
+> `dist/index.d.ts:24` exports `chat`, and `npm run build` exits 0 on this PR's head — a
+> branch whose only source change is the CI workflow (`git diff origin/main...HEAD --stat`
+> is three files: `.github/workflows/ci.yml`, `package.json`'s `lint` script, and this file).
+> So the `TS2305` failure is gone and the "newest among the bound apps at 0.11.0" skew
+> reading is obsolete. Found while adding CI to this repo: the PR asserted the build passes
+> on `main`, which is the direct negation of the first entry, so leaving it open would have
+> been a claim this repo's own gate contradicts.
+
+- **[CLOSED 2026-09-16]** ~~**DONE-BUT-DIVERGENT (CRIT, pre-existing on origin/main) —
+  `chat` not exported by the pinned SDK.**~~ The shipped "Summarize" feature (`src/lib-ui/sdk/SummaryModal.tsx:2`
   `import { chat } from "@immediately-run/sdk"`, added in PR #9) does **not**
   type-check against the repo's own pinned `@immediately-run/sdk@0.11.0`, which has
   no `chat` export → `npm run build` fails with `TS2305` **on a clean origin/main
@@ -75,7 +87,7 @@ button hides) lives in the view beside `uploadRoot`.
   and seeded this file; `npm run lint` and `npm test` (36 tests) are green. Fix is a
   coordinated SDK bump to a version exporting `chat` (out of scope for this
   verify/record pass — filed as a roadmap child of R3-124).
-- **SDK-version skew (record only, do NOT bump):** file-explorer pins
+- **[CLOSED 2026-09-16]** ~~**SDK-version skew (record only, do not bump):**~~ file-explorer pins
   `@immediately-run/sdk` at **`0.11.0`** — the newest among the bound apps (others on
   `0.2.8` / `0.8.1`; agent-demo `^0.12.0`). Recorded as fleet maintenance debt; a
   coordinated bump is its own gated change.
