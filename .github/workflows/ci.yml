@@ -1,7 +1,7 @@
 # Continuous integration for the file-explorer app: lint, unit tests (Vitest),
-# and a production build on every push and pull request. Keeps the FX regression
-# suite (FileExplorer.test.tsx) green and catches type/build breakage before the
-# cache-zip workflow ships from main.
+# and a production build on every pull request and on push to `main`. Keeps the FX
+# regression suite (FileExplorer.test.tsx) green and catches type/build breakage before
+# the cache-zip workflow ships from main.
 
 name: CI
 
@@ -14,18 +14,28 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same ref supersedes an in-flight run.
+# A newer push to the same ref supersedes an in-flight run — on a PR branch only. A push
+# run gets its OWN group (the SHA), so it can never be cancelled by a later merge.
+#
+# This was `group: ci-${{ github.ref }}` with `cancel-in-progress: true`, which cancelled
+# a `main` run the moment the next merge landed: the superseded commit was left with a
+# CANCELLED verdict rather than a green one, which matters as soon as a check is required
+# or somebody bisects `main` by check status. `cancel-in-progress: false` alone would not
+# have fixed it either — GitHub keeps at most one PENDING run per group, so a third merge
+# inside the window still cancels the middle commit's queued run. Keying push runs by SHA
+# is what removes it. (R3-648 proved this on the three repos that copied this file.)
+#
+# `workflow_dispatch` — the third trigger this workflow declares — takes the non-push arm,
+# so a manual run shares the bare `ci-<ref>` group and is not cancelled in flight.
+# Harmless, and named because it is the one case where the one-pending-run-per-group rule
+# still applies.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.ref }}${{ github.event_name == 'push' && format('-{0}', github.sha) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      # ESLint and tooling treat warnings as errors under CI, matching the
-      # deploy-time build gate.
-      CI: true
     steps:
       # Third-party actions are pinned by commit SHA (see cache.yml rationale).
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -38,8 +48,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `--max-warnings 0`, because a warning here is a defect that merges otherwise.
+      #
+      # This step carried an `env: CI: true` block and the comment "ESLint and tooling
+      # treat warnings as errors under CI, matching the deploy-time build gate". BOTH
+      # HALVES WERE FALSE, and three more repos copied the sentence before anyone measured
+      # it (R3-648). Measured here on Node 22.22.2:
+      #
+      #   $ CI=true npx eslint src/App.tsx --rule '{"max-lines":["warn",1]}'
+      #   ✖ 1 problem (0 errors, 1 warning)                       → exit 0
+      #   $ … --max-warnings 0                                     → exit 1
+      #
+      # ESLint reads no `CI` variable (`grep -rl 'env\.CI' node_modules/eslint/lib` → 0
+      # files); Actions already sets `CI=true` in every job, so the block was a no-op; and
+      # `cache.yml` — the only other workflow here — runs `npm ci --ignore-scripts` and the
+      # cache-zip publish, no lint and no build, so there was no deploy-time gate to match.
+      #
+      # It was load-bearing rather than cosmetic: three rules are warn-level in this repo,
+      # and one of them is `react-hooks/exhaustive-deps` — the rule this repo's own
+      # CLAUDE.md spends a paragraph on. A violation merged with this step green.
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --max-warnings 0
 
       - name: Test
         run: npm test
