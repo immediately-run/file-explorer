@@ -17,7 +17,15 @@ const ADAPTER_DIR = join(CORE_DIR, "sdk");
 const NEEDLE = "@immediately-run/sdk";
 // Match a real module reference (import/from/require/vi.mock), not a comment
 // that merely names the package.
-const IMPORT_RE = /(?:from|import|require|vi\.mock)\s*\(?\s*["']@immediately-run\/sdk["']/;
+//
+// The optional `/…` tail matters and was missing until R3-653: the package's exports map
+// is `{".": …, "./*": …}`, and this repo's own adapter reaches for a SUBPATH —
+// `src/lib-ui/sdk/SdkFileExplorer.tsx:20` imports `@immediately-run/sdk/sandboxUtils`. A
+// pattern anchored on a closing quote right after `sdk` therefore refused only the bare
+// specifier, so a core file importing `@immediately-run/sdk/fs` passed this check green.
+// Nothing under `src/lib-ui/` outside `sdk/` used the subpath form when this was widened,
+// so the widening changed no verdict — it closed a door nobody had walked through yet.
+const IMPORT_RE = /(?:from|import|require|vi\.mock)\s*\(?\s*["']@immediately-run\/sdk(?:\/[^"']*)?["']/;
 
 /** All .ts/.tsx files under a dir, recursively. */
 function walk(dir) {

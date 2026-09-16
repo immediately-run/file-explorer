@@ -54,7 +54,7 @@ jobs:
       - name: Purity guard
         run: npm run check:core
 
-      # `npm run lint` IS the gate: `--max-warnings 0` lives in the script, so the command
+      # `npm run lint` is the gate: `--max-warnings 0` lives in the script, so the command
       # a contributor runs and the command CI runs are the same string. R3-648 — not this item —
       # landed the step as `npm run lint -- --max-warnings 0` in three sibling repos; keeping
       # the flag here would mean the documented local command stayed lax and the difference
