@@ -48,9 +48,7 @@ function ContextMenu({ anchor, onClose }: { anchor: MenuAnchor; onClose: () => v
       document.removeEventListener("pointerdown", onDocPointer, true);
       window.removeEventListener("scroll", onClose, true);
     };
-    // R3-653 fault injection (reverted by the next commit): `onClose` dropped from the
-    // dependency array, which is a react-hooks/exhaustive-deps WARNING in this repo.
-  }, [ref]);
+  }, [ref, onClose]);
 
   const onMenuKeyDown = (e: React.KeyboardEvent<HTMLUListElement>) => {
     const items = Array.from(ref.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]") ?? []);
