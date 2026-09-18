@@ -528,6 +528,7 @@ const Scope = memo(function Scope({
       data-drag={dragging ? "1" : undefined}
       onDragOver={onScopeDragOver}
       onDragLeave={onScopeDragLeave}
+      onDropCapture={() => setDragging(false)}
       onDrop={onScopeDrop}
     >
       <div className="scope">

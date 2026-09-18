@@ -983,13 +983,51 @@ describe("R3-626 — the flat layouts' containers are upload drop zones", () => 
 
   it("list: a directory-row drop still lands once, in that directory", async () => {
     const user = await toLayout("List view");
-    await user.click(await screen.findByText("repo"));
-    await screen.findByText("src");
-    const row = screen.getByText("src").closest("[data-path]") as HTMLElement;
+    await user.click(await screen.findAllByText("repo")[0]);
+    await screen.findAllByText("src");
+    const row = screen.getAllByText("src")[0].closest("[data-path]") as HTMLElement;
     fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
     await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
     expect(h.uploadFile).toHaveBeenCalledTimes(1);
     expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("icons: a directory-row drop still lands once, in that directory", async () => {
+    const user = await toLayout("Icon view");
+    await user.click(await screen.findAllByText("repo")[0]);
+    await screen.findAllByText("src");
+    const row = screen.getAllByText("src")[0].closest("[data-path]") as HTMLElement;
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile).toHaveBeenCalledTimes(1);
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("columns: a directory-row drop still lands once, in that directory", async () => {
+    const user = await toLayout("Column view");
+    await user.click(await screen.findAllByText("repo")[0]); // column 1 = /mnt/abc
+    await screen.findAllByText("src");
+    const row = screen.getAllByText("src")[0].closest("[data-path]") as HTMLElement;
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile).toHaveBeenCalledTimes(1);
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("list: a drop a directory row takes clears the affordance the hover lit", async () => {
+    // The row's onDrop stops propagation, so the container's onDrop never runs —
+    // only the capture-phase clear un-lights the container here.
+    const user = await toLayout("List view");
+    await user.click(await screen.findAllByText("repo")[0]);
+    await screen.findAllByText("src");
+    const layout = document.querySelector(".layout--list") as HTMLElement;
+    const row = screen.getAllByText("src")[0].closest("[data-path]") as HTMLElement;
+    fireEvent.dragOver(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(layout.getAttribute("data-drag")).toBe("1");
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile).toHaveBeenCalledTimes(1);
+    expect(layout.getAttribute("data-drag")).toBe(null);
   });
 
   it("list: the layout lights and clears data-drag", async () => {

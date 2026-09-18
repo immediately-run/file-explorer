@@ -34,6 +34,10 @@ export function useUploadDropZone({
     "data-drag"?: "1";
     onDragOver: (e: React.DragEvent) => void;
     onDragLeave: (e: React.DragEvent) => void;
+    /** Capture phase: a drop a DIRECTORY row takes stops propagation in the
+     *  bubble phase, so this container's onDrop never runs and the lit
+     *  affordance would stick. The capture handler runs before that. */
+    onDropCapture: () => void;
     onDrop: (e: React.DragEvent) => void;
   };
 } {
@@ -68,5 +72,13 @@ export function useUploadDropZone({
     onUploadDrop(files, uploadTargetDir(row, fallbackDir), writable);
   };
 
-  return { dropProps: { "data-drag": dragging ? "1" : undefined, onDragOver, onDragLeave, onDrop } };
+  return {
+    dropProps: {
+      "data-drag": dragging ? "1" : undefined,
+      onDragOver,
+      onDragLeave,
+      onDropCapture: () => setDragging(false),
+      onDrop,
+    },
+  };
 }
