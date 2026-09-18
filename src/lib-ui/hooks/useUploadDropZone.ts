@@ -14,7 +14,7 @@
 // same rule #40 set for the tree's scope. A read-only target accepts nothing
 // and never lights the affordance (§5: the drop is rejected, no EROFS surfaced).
 import { useState } from "react";
-import { uploadTargetDir } from "../explorer";
+import { uploadRowFromEvent } from "../explorer";
 
 export function useUploadDropZone({
   fallbackDir,
@@ -65,11 +65,7 @@ export function useUploadDropZone({
     // The row under the pointer, if any, answers for itself in the DOM: a
     // directory row stopped propagation long before this handler, so what
     // arrives here is a file row (→ its parent) or no row (→ the fallback).
-    const el = (e.target as HTMLElement).closest?.("[data-path]") ?? null;
-    const row = el
-      ? { path: el.getAttribute("data-path") ?? fallbackDir, isDir: el.getAttribute("data-dir") === "1" }
-      : null;
-    onUploadDrop(files, uploadTargetDir(row, fallbackDir), writable);
+    onUploadDrop(files, uploadRowFromEvent(e, fallbackDir), writable);
   };
 
   return {

@@ -1121,8 +1121,7 @@ describe("R3-626 — the flat layouts' containers are upload drop zones", () => 
   it("a null cwd (the roots-root) accepts nothing: there is no directory to fall back to", async () => {
     // With NO selection and TWO mounts, chooseLayout("list") seeds cwd = null
     // (the roots-root), where the container has no directory to offer and must
-    // accept nothing at all. So: no renderWithSrcExpanded (its click selects),
-    // no radio click inside it either.
+    // accept nothing at all. So: no renderWithSrcExpanded (its click selects).
     const user = userEvent.setup();
     h.mounts = [worktree("r1"), { type: "worktree", path: "/mnt/xyz", id: "r2" }];
     render(<FileExplorer />);
@@ -1134,5 +1133,46 @@ describe("R3-626 — the flat layouts' containers are upload drop zones", () => 
     expect(layout.getAttribute("data-drag")).toBe(null);
     fireEvent.drop(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
     expect(h.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("list: an internal MOVE drag is not taken by the flat container", async () => {
+    const user = await toLayout("List view");
+    await user.click(await screen.findAllByText("repo")[0]);
+    await screen.findAllByText("src");
+    const layout = document.querySelector(".layout--list") as HTMLElement;
+    const move = dataTransfer({ move: JSON.stringify({ from: "/mnt/abc/README.md", rootPath: "/mnt/abc" }) });
+    fireEvent.dragOver(layout, { dataTransfer: move });
+    expect(layout.getAttribute("data-drag")).toBe(null);
+    fireEvent.drop(layout, { dataTransfer: move });
+    expect(h.uploadFile).not.toHaveBeenCalled();
+    expect(h.renameEntry).not.toHaveBeenCalled();
+  });
+
+  it("a read-only mount's flat container accepts nothing", async () => {
+    const user = userEvent.setup();
+    h.mounts = [space()]; // mode "ro"
+    render(<FileExplorer />);
+    await screen.findAllByText("Shared notes");
+    await user.click(screen.getByRole("radio", { name: "List view" }));
+    await screen.findAllByText("Shared notes"); // the cwd seeded to the space root
+    const layout = document.querySelector(".layout--list") as HTMLElement;
+    fireEvent.dragOver(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(layout.getAttribute("data-drag")).toBe(null);
+    fireEvent.drop(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(h.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("the tree scope: a drop a directory row takes clears the affordance the hover lit", async () => {
+    // The same capture-clear, on the tree's scope — its rows stopPropagation on
+    // drop, so without the capture handler data-drag would stick here too.
+    await renderWithSrcExpanded();
+    const scope = screen.getByText("src").closest(".mount") as HTMLElement;
+    const row = screen.getByText("src").closest(".tnode") as HTMLElement;
+    fireEvent.dragOver(scope, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(scope.getAttribute("data-drag")).toBe("1");
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile).toHaveBeenCalledTimes(1);
+    expect(scope.getAttribute("data-drag")).toBe(null);
   });
 });

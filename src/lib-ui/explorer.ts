@@ -258,6 +258,21 @@ export const uploadTargetDir = (
   scopeRoot: string,
 ): string => (row ? (row.isDir ? row.path : dirOf(row.path)) : scopeRoot);
 
+/**
+ * The DOM→row half of an OS-file drop (R3-626): resolve the element the drop
+ * landed on to a row via the `data-path`/`data-dir` attributes every row
+ * carries, then `uploadTargetDir` against the container's fallback. ONE home —
+ * the flat containers' hook and the tree's scope resolve identically, and this
+ * is the block that must not drift between them.
+ */
+export const uploadRowFromEvent = (e: { target: EventTarget | null }, fallbackDir: string): string => {
+  const el = (e.target as HTMLElement | null)?.closest?.("[data-path]") ?? null;
+  const row = el
+    ? { path: el.getAttribute("data-path") ?? fallbackDir, isDir: el.getAttribute("data-dir") === "1" }
+    : null;
+  return uploadTargetDir(row, fallbackDir);
+};
+
 /** A soft client cap on inlined upload/drag bytes; the host enforces the real one. */
 export const MAX_UPLOAD_BYTES = 512 * 1024;
 
