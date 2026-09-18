@@ -13,6 +13,7 @@ import FileGlyph from "./FileGlyph";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
 import { useLongPress } from "./hooks/useLongPress";
 import { useRowInteractions, openRowMenuKey, type NodeHandlers } from "./hooks/useRowInteractions";
+import { useUploadDropZone } from "./hooks/useUploadDropZone";
 import { mountLabel, subtreeLabel, isWritableMount, toMountRel, isProtected } from "./explorer";
 import type { ExplorerRoot } from "./types";
 
@@ -116,8 +117,20 @@ const Column = memo(function Column({
 }) {
   const { mount, rows, loading, errored, empty } = useBrowse(store, dir, ordered);
 
+  // R3-626 — each column is its own drop zone: the fallback is THIS column's
+  // directory (§5's "the directory of the column it landed in"), so a drop on
+  // this column's blank space or on one of its file rows lands here and not in
+  // some view-level cwd. Column 0 (the mounts list) has no directory and accepts
+  // nothing. The affordance is the column's, not the view's — a whole-view
+  // outline when one column is the target says the wrong thing.
+  const { dropProps } = useUploadDropZone({
+    fallbackDir: dir,
+    writable: mount ? isWritableMount(mount) : false,
+    onUploadDrop: handlers.onUploadDrop,
+  });
+
   return (
-    <div className={"col" + (focused ? " col--focus" : "")} data-col={level}>
+    <div className={"col" + (focused ? " col--focus" : "")} data-col={level} {...dropProps}>
       <div className="col__head">
         {dir === null ? (
           <span className="col__title">Spaces</span>

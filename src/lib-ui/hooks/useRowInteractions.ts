@@ -42,6 +42,12 @@ export interface NodeHandlers {
 }
 
 export interface RowProps {
+  /** R3-626 — the row's identity, so a container that catches what the row
+   *  declines (a blank-space/file-row upload drop) can resolve the target
+   *  directory from the DOM (`closest("[data-path]")`), the same attributes
+   *  the tree row has carried since file-explorer#40. */
+  "data-path": string;
+  "data-dir": string;
   draggable: true;
   onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent) => void;
@@ -140,6 +146,8 @@ export function useRowInteractions(
   };
 
   const rowProps: RowProps = {
+    "data-path": absPath,
+    "data-dir": isDir ? "1" : "0",
     draggable: true,
     onContextMenu: (e) => {
       e.preventDefault();

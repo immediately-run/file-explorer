@@ -83,6 +83,7 @@ import {
   isProtected,
   orderMounts,
   moveRejection,
+  uploadRowFromEvent,
   uploadTargetDir,
   MOVE_MIME,
   WRITE_ERR,
@@ -515,11 +516,7 @@ const Scope = memo(function Scope({
     if (!files.length) return;
     e.preventDefault();
     setDragging(false);
-    const el = (e.target as HTMLElement).closest?.("[data-path]") ?? null;
-    const row = el
-      ? { path: el.getAttribute("data-path") ?? root.path, isDir: el.getAttribute("data-dir") === "1" }
-      : null;
-    handlers.onUploadDrop(files, uploadTargetDir(row, root.path), writable);
+    handlers.onUploadDrop(files, uploadRowFromEvent(e, root.path), writable);
   };
 
   return (
@@ -528,6 +525,7 @@ const Scope = memo(function Scope({
       data-drag={dragging ? "1" : undefined}
       onDragOver={onScopeDragOver}
       onDragLeave={onScopeDragLeave}
+      onDropCapture={() => setDragging(false)}
       onDrop={onScopeDrop}
     >
       <div className="scope">

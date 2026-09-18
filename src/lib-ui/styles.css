@@ -256,6 +256,12 @@
    destination of a drop that missed a directory row is unambiguous
    (FILE_EXPLORER_SPEC §5). A directory row lights `.tnode--droptarget` instead. */
 .mount[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
+/* R3-626 — the flat layouts' container-level drop affordance: the list/icons
+   layout container, and per column in the columns layout (§5: the destination
+   must be unambiguous — a whole-view outline when ONE column is the target
+   says the wrong thing). */
+.layout[data-drag="1"],
+.col[data-drag="1"] { outline: 2px dashed var(--accent-pink); outline-offset: -4px; }
 
 /* A directory row that is a live drop target (internal move R3-81 / upload R3-82). */
 .tnode--droptarget,
