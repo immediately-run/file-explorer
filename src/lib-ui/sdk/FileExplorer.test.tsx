@@ -936,3 +936,165 @@ describe("editor-active reveal + marker", () => {
     ).not.toBeInTheDocument();
   });
 });
+
+// --- R3-626: the flat layouts take what their rows decline -------------------
+// file-explorer#40 gave the tree's scope the drop; list, icons and columns were
+// left dead outside a directory row. Per layout: blank space → cwd (columns:
+// THAT column's directory — the second-column assertion fails any view-level
+// fallback), a file row → its parent, a directory row → itself exactly once,
+// and the owning container lights `data-drag`.
+describe("R3-626 — the flat layouts' containers are upload drop zones", () => {
+  const note = () => new File(["hello"], "note.txt", { type: "text/plain" });
+
+  beforeEach(() => {
+    // The layout choice persists (useLayout → localStorage); each case starts
+    // from the tree default so renderWithSrcExpanded's expansion applies.
+    localStorage.clear();
+  });
+
+  async function toLayout(layoutTip: string) {
+    const user = userEvent.setup();
+    await renderWithSrcExpanded();
+    await user.click(screen.getByRole("radio", { name: layoutTip }));
+    return user;
+  }
+
+  it("list: a drop on the layout's blank space uploads into the cwd", async () => {
+    const user = await toLayout("List view");
+    await user.click(await screen.findByText("repo")); // enter the mount → cwd /mnt/abc
+    await screen.findByText("src");
+    const layout = document.querySelector(".layout--list") as HTMLElement;
+    fireEvent.drop(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/note.txt");
+  });
+
+  it("list: a drop on a file row uploads into the directory holding it", async () => {
+    const user = await toLayout("List view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    await user.click(screen.getByText("src"));
+    await screen.findByText("index.ts");
+    const row = screen.getByText("index.ts").closest("[data-path]") as HTMLElement;
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("list: a directory-row drop still lands once, in that directory", async () => {
+    const user = await toLayout("List view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    const row = screen.getByText("src").closest("[data-path]") as HTMLElement;
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile).toHaveBeenCalledTimes(1);
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("list: the layout lights and clears data-drag", async () => {
+    const user = await toLayout("List view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    const layout = document.querySelector(".layout--list") as HTMLElement;
+    expect(layout.getAttribute("data-drag")).toBe(null);
+    fireEvent.dragOver(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(layout.getAttribute("data-drag")).toBe("1");
+    fireEvent.dragLeave(layout, { relatedTarget: document.body });
+    expect(layout.getAttribute("data-drag")).toBe(null);
+  });
+
+  it("icons: a drop on the layout's blank space uploads into the cwd", async () => {
+    const user = await toLayout("Icon view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    const layout = document.querySelector(".layout--icons") as HTMLElement;
+    fireEvent.drop(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/note.txt");
+  });
+
+  it("icons: a drop on a file row uploads into the directory holding it", async () => {
+    const user = await toLayout("Icon view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    await user.click(screen.getByText("src"));
+    await screen.findByText("index.ts");
+    const row = screen.getByText("index.ts").closest("[data-path]") as HTMLElement;
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("icons: the layout lights and clears data-drag", async () => {
+    const user = await toLayout("Icon view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    const layout = document.querySelector(".layout--icons") as HTMLElement;
+    expect(layout.getAttribute("data-drag")).toBe(null);
+    fireEvent.dragOver(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(layout.getAttribute("data-drag")).toBe("1");
+    fireEvent.dragLeave(layout, { relatedTarget: document.body });
+    expect(layout.getAttribute("data-drag")).toBe(null);
+  });
+
+  it("columns: a drop in the SECOND column's blank space uploads into THAT column's directory", async () => {
+    const user = await toLayout("Column view");
+    await user.click(await screen.findByText("repo")); // column 1 = /mnt/abc
+    await screen.findByText("src");
+    await user.click(screen.getByText("src")); // column 2 = /mnt/abc/src
+    await screen.findByText("index.ts");
+    const col1 = document.querySelector('[data-col="1"]') as HTMLElement;
+    fireEvent.drop(col1, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    // A view-level fallback (the deepest open path, /mnt/abc/src) fails this.
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/note.txt");
+  });
+
+  it("columns: a drop on a file row uploads into the directory holding it", async () => {
+    const user = await toLayout("Column view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    await user.click(screen.getByText("src"));
+    await screen.findByText("index.ts");
+    const row = screen.getByText("index.ts").closest("[data-path]") as HTMLElement;
+    fireEvent.drop(row, { dataTransfer: dataTransfer({ files: [note()] }) });
+    await vi.waitFor(() => expect(h.uploadFile).toHaveBeenCalled());
+    expect(h.uploadFile.mock.calls[0][0]).toBe("/src/note.txt");
+  });
+
+  it("columns: the landed column lights data-drag, and only it", async () => {
+    const user = await toLayout("Column view");
+    await user.click(await screen.findByText("repo"));
+    await screen.findByText("src");
+    await user.click(screen.getByText("src"));
+    await screen.findByText("index.ts");
+    const col1 = document.querySelector('[data-col="1"]') as HTMLElement;
+    const col2 = document.querySelector('[data-col="2"]') as HTMLElement;
+    expect(col1.getAttribute("data-drag")).toBe(null);
+    expect(col2.getAttribute("data-drag")).toBe(null);
+    fireEvent.dragOver(col2, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(col2.getAttribute("data-drag")).toBe("1");
+    expect(col1.getAttribute("data-drag")).toBe(null);
+    fireEvent.dragLeave(col2, { relatedTarget: document.body });
+    expect(col2.getAttribute("data-drag")).toBe(null);
+  });
+
+  it("a null cwd (the roots-root) accepts nothing: there is no directory to fall back to", async () => {
+    // With NO selection and TWO mounts, chooseLayout("list") seeds cwd = null
+    // (the roots-root), where the container has no directory to offer and must
+    // accept nothing at all. So: no renderWithSrcExpanded (its click selects),
+    // no radio click inside it either.
+    const user = userEvent.setup();
+    h.mounts = [worktree("r1"), { type: "worktree", path: "/mnt/xyz", id: "r2" }];
+    render(<FileExplorer />);
+    await screen.findAllByText("r1"); // the tree renders both mount scopes
+    await user.click(screen.getByRole("radio", { name: "List view" }));
+    await screen.findAllByText("r2"); // the roots-root lists both mounts
+    const layout = document.querySelector(".layout--list") as HTMLElement;
+    fireEvent.dragOver(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(layout.getAttribute("data-drag")).toBe(null);
+    fireEvent.drop(layout, { dataTransfer: dataTransfer({ files: [note()] }) });
+    expect(h.uploadFile).not.toHaveBeenCalled();
+  });
+});

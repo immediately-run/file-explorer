@@ -13,7 +13,8 @@ import Breadcrumb from "./Breadcrumb";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
 import { useLongPress } from "./hooks/useLongPress";
 import { useRowInteractions, openRowMenuKey, type NodeHandlers } from "./hooks/useRowInteractions";
-import { breadcrumbFor, toMountRel } from "./explorer";
+import { useUploadDropZone } from "./hooks/useUploadDropZone";
+import { breadcrumbFor, toMountRel, isWritableMount } from "./explorer";
 import { fileTypeLabel, compareEntries, type SortKey } from "./entryMeta";
 import type { ExplorerRoot } from "./types";
 
@@ -122,6 +123,16 @@ function ListView({
   const [sort, setSort] = useState<SortKey>("name");
   const listRef = useRef<HTMLDivElement>(null);
 
+  // R3-626 — the layout takes what its rows decline: a drop on the blank space
+  // or the breadcrumb uploads into the cwd (§5's fallback; at the mounts root
+  // there is no directory, so the container accepts nothing). One shared hook,
+  // the same one ColumnView calls per column.
+  const { dropProps } = useUploadDropZone({
+    fallbackDir: cwd,
+    writable: mount ? isWritableMount(mount) : false,
+    onUploadDrop: handlers.onUploadDrop,
+  });
+
   const sorted = useMemo(() => {
     if (cwd === null) return rows; // mounts root keeps its given (ranked) order
     return [...rows].sort((a, b) =>
@@ -151,7 +162,7 @@ function ListView({
   };
 
   return (
-    <div className="layout layout--list">
+    <div className="layout layout--list" {...dropProps}>
       <Breadcrumb crumbs={crumbs} mount={mount} onNavigate={setCwd} />
       {cwd !== null && (
         <div className="lhead" role="presentation">

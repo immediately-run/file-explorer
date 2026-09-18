@@ -11,7 +11,8 @@ import Breadcrumb from "./Breadcrumb";
 import { useBrowse, type BrowseRow } from "./hooks/useBrowse";
 import { useLongPress } from "./hooks/useLongPress";
 import { useRowInteractions, openRowMenuKey, type NodeHandlers } from "./hooks/useRowInteractions";
-import { breadcrumbFor, toMountRel, isProtected } from "./explorer";
+import { useUploadDropZone } from "./hooks/useUploadDropZone";
+import { breadcrumbFor, toMountRel, isProtected, isWritableMount } from "./explorer";
 import { fileTypeLabel } from "./entryMeta";
 import type { ExplorerRoot } from "./types";
 
@@ -107,6 +108,15 @@ function IconGrid({
   const { crumbs } = useMemo(() => breadcrumbFor(cwd, ordered), [cwd, ordered]);
   const gridRef = useRef<HTMLDivElement>(null);
 
+  // R3-626 — the layout takes what its rows decline: a drop on the blank space
+  // or the breadcrumb uploads into the cwd (§5's fallback; at the mounts root
+  // there is no directory, so the container accepts nothing).
+  const { dropProps } = useUploadDropZone({
+    fallbackDir: cwd,
+    writable: mount ? isWritableMount(mount) : false,
+    onUploadDrop: handlers.onUploadDrop,
+  });
+
   const onOpen = (row: BrowseRow) => {
     if (row.ctx.isDir) setCwd(row.ctx.absPath);
     else handlers.onActivate(row.ctx.absPath, false);
@@ -150,7 +160,7 @@ function IconGrid({
   };
 
   return (
-    <div className="layout layout--icons">
+    <div className="layout layout--icons" {...dropProps}>
       <Breadcrumb crumbs={crumbs} mount={mount} onNavigate={setCwd} />
       <div ref={gridRef} role="grid" aria-label="Files" className="igrid" onKeyDown={onKeyDownGrid}>
         {/* A gridcell's required parent is a row. The tiles sit in ONE row
