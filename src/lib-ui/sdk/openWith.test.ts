@@ -107,6 +107,17 @@ describe("probeOffer", () => {
     });
   });
 
+  it("offers open-workbook — the workbook corpus's door (R3-754)", async () => {
+    const fs = fsWith({
+      "/content/wb/immediately.run.json": '{"opensWith":{"task":"open-workbook"},"kind":"workbook"}',
+    });
+    await expect(probeOffer(fs, "/content/wb", { offerable: DECLARED_TASKS })).resolves.toEqual({
+      task: "open-workbook",
+      version: "1.0",
+      label: "Open as workbook",
+    });
+  });
+
   it("offers nothing for a marker naming a contract this app does not invoke", async () => {
     const fs = fsWith({ "/spaces/abc/x/immediately.run.json": '{"opensWith":{"task":"open-hologram"}}' });
     await expect(probeOffer(fs, "/spaces/abc/x", { offerable: DECLARED_TASKS })).resolves.toBeNull();
