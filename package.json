@@ -13,6 +13,10 @@
       {
         "task": "open-project",
         "version": "^1"
+      },
+      {
+        "task": "open-workbook",
+        "version": "^1"
       }
     ],
     "launches": [
