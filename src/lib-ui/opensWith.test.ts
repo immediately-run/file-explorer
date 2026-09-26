@@ -56,8 +56,15 @@ describe("parseOpensWith — an untrusted marker never throws", () => {
 
   it.each<[string, unknown]>([
     ["both forms at once (the host refuses it)", marker({ opensWith: { task: "open-wiki", app: "github:a/b" } })],
-    ["an empty app", marker({ opensWith: { app: "  " } })],
+    ["an empty app", marker({ opensWith: { app: "" } })],
     ["a non-string app", marker({ opensWith: { app: { repo: "a/b" } } })],
+    // Each mirrors a host refusal (site-main parseContentMarker, §4b.1) — offered, it
+    // would be a dead click that never withdraws.
+    ["an app carrying a revision (revision-in-app)", marker({ opensWith: { app: "github:a/b@main" }, kind: "board" })],
+    ["an app-form entry key (entry-in-app)", marker({ opensWith: { app: "github:a/b", entry: "x.tsx" }, kind: "board" })],
+    ["an app form with no kind (missing-kind)", marker({ opensWith: { app: "github:a/b" } })],
+    ["whitespace task beside an app (the host does not trim: ambiguous-opens)", marker({ opensWith: { task: " ", app: "github:a/b" }, kind: "board" })],
+    ["a task-form marker naming open-declared itself (a cycle)", marker({ opensWith: { task: "open-declared" }, kind: "board" })],
   ])("returns null for %s", (_why, text) => {
     expect(parseOpensWith(text as string)).toBeNull();
   });
