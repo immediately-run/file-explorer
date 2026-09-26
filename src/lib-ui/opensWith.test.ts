@@ -1,4 +1,5 @@
 import {
+  APP_FORM_CONTRACT,
   CONTENT_MARKER_FILE,
   openWithLabel,
   opensInPlaceOffer,
@@ -40,6 +41,23 @@ describe("parseOpensWith — an untrusted marker never throws", () => {
     ["opensWith an array", marker({ opensWith: ["open-wiki"] })],
     ["a non-string task", marker({ opensWith: { task: 7 } })],
     ["an empty task", marker({ opensWith: { task: "  " } })],
+  ])("returns null for %s", (_why, text) => {
+    expect(parseOpensWith(text as string)).toBeNull();
+  });
+
+  it("an APP-form marker opens through the fixed contract, and the app it names is not returned", () => {
+    // BUNDLE_EMBEDDING §4b.2 rule 2: the caller never names the app — the host reads the
+    // marker at invoke time and resolves the opener itself.
+    const parsed = parseOpensWith(marker({ opensWith: { app: "github:mallory/evil", version: "9.9" }, kind: "board" }));
+    expect(parsed).toEqual({ task: APP_FORM_CONTRACT, version: "1.0", kind: "board" });
+    expect(APP_FORM_CONTRACT).toBe("open-declared");
+    expect(JSON.stringify(parsed)).not.toMatch(/mallory|9\.9/);
+  });
+
+  it.each<[string, unknown]>([
+    ["both forms at once (the host refuses it)", marker({ opensWith: { task: "open-wiki", app: "github:a/b" } })],
+    ["an empty app", marker({ opensWith: { app: "  " } })],
+    ["a non-string app", marker({ opensWith: { app: { repo: "a/b" } } })],
   ])("returns null for %s", (_why, text) => {
     expect(parseOpensWith(text as string)).toBeNull();
   });

@@ -118,6 +118,23 @@ describe("probeOffer", () => {
     });
   });
 
+  it("offers the roadmap board's app-form marker through open-declared, and invokes it with the folder alone (R3-547)", async () => {
+    // The marker docs/content/roadmap/board/ actually carries.
+    const fs = fsWith({
+      "/docs/content/roadmap/board/immediately.run.json": JSON.stringify({
+        opensWith: { app: "github:immediately-run/kanban-board", version: "1.0" },
+        kind: "board",
+      }),
+    });
+    const offer = await probeOffer(fs, "/docs/content/roadmap/board", { offerable: DECLARED_TASKS });
+    expect(offer).toEqual({ task: "open-declared", version: "1.0", label: "Open as board" });
+    await openWith(root({ id: "space:docs", path: "/docs" }), "/docs/content/roadmap/board", offer!);
+    expect(invokeTask.mock.calls[0][0]).toBe("open-declared");
+    // `dir` and nothing else — an `app` key is the retired open-with shape the host refuses.
+    expect(Object.keys(invokeTask.mock.calls[0][1])).toEqual(["dir"]);
+    expect(JSON.stringify(invokeTask.mock.calls[0])).not.toContain("kanban-board");
+  });
+
   it("offers nothing for a marker naming a contract this app does not invoke", async () => {
     const fs = fsWith({ "/spaces/abc/x/immediately.run.json": '{"opensWith":{"task":"open-hologram"}}' });
     await expect(probeOffer(fs, "/spaces/abc/x", { offerable: DECLARED_TASKS })).resolves.toBeNull();
