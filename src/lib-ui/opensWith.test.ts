@@ -61,6 +61,7 @@ describe("parseOpensWith — an untrusted marker never throws", () => {
     // Each mirrors a host refusal (site-main parseContentMarker, §4b.1) — offered, it
     // would be a dead click that never withdraws.
     ["an app carrying a revision (revision-in-app)", marker({ opensWith: { app: "github:a/b@main" }, kind: "board" })],
+    ["an app carrying a commit pin (revision-in-app)", marker({ opensWith: { app: `github:a/b#${"a".repeat(40)}` }, kind: "board" })],
     ["an app-form entry key (entry-in-app)", marker({ opensWith: { app: "github:a/b", entry: "x.tsx" }, kind: "board" })],
     ["an app form with no kind (missing-kind)", marker({ opensWith: { app: "github:a/b" } })],
     ["whitespace task beside an app (the host does not trim: ambiguous-opens)", marker({ opensWith: { task: " ", app: "github:a/b" }, kind: "board" })],
