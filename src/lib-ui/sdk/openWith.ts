@@ -17,10 +17,12 @@ import type { ExplorerRoot, FsSource } from "../types";
  * time (§5.8 least authority), so a contract missing from the manifest would be offered
  * and then refused, and one missing from here would be silently unofferable.
  *
- * It is DATA, deliberately: no code in this feature names a contract. Supporting a new
- * one is this line plus the manifest, and the marker's own `kind` supplies the label.
+ * It is DATA, deliberately: the only contract the feature's code names is the app-form
+ * door (`APP_FORM_CONTRACT`, `open-declared`), which is protocol, not a marker's choice.
+ * Supporting a new contract is this line plus the manifest, and the marker's own `kind`
+ * supplies the label.
  */
-export const DECLARED_TASKS = ["open-wiki", "open-project", "open-workbook"] as const;
+export const DECLARED_TASKS = ["open-wiki", "open-project", "open-workbook", "open-declared"] as const;
 
 /**
  * The task contracts this app declares it LAUNCHES to-run into the stage (R3-159).

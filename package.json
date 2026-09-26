@@ -17,6 +17,10 @@
       {
         "task": "open-workbook",
         "version": "^1"
+      },
+      {
+        "task": "open-declared",
+        "version": "^1"
       }
     ],
     "launches": [

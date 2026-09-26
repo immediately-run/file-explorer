@@ -16,23 +16,41 @@
 //     have written, so nothing here throws, and every field is validated before it is
 //     shown or used. A marker we cannot vouch for yields NO offer — never a partial
 //     one, and never an error in front of the user.
-//   • **No task name appears in this file.** The affordance is offered by the marker's
-//     own `kind` and invoked with the marker's own `task`; which contracts this app may
-//     invoke arrives as data ({@link OpensWithPolicy.offerable}), mirroring the
-//     `invokes` declaration the host enforces anyway (UI_AS_APPS_SPEC §5.8). A future
-//     contract therefore works by declaring it, with no change here.
-//   • **The marker names a CONTRACT, never an app.** Nothing in a marker can name,
-//     become, or reach the app that opens it — the host's binding table decides that
-//     (REPO_CONTENT_DISPATCH_SPEC §4). So there is nothing app-shaped to parse.
+//   • **No marker-chosen task name appears in this file.** A contract-form offer is
+//     labelled by the marker's own `kind` and invoked with the marker's own `task`;
+//     which contracts this app may invoke arrives as data
+//     ({@link OpensWithPolicy.offerable}), mirroring the `invokes` declaration the host
+//     enforces anyway (UI_AS_APPS_SPEC §5.8), so a future contract works by declaring
+//     it, with no change here. The one name this file does hold is
+//     {@link APP_FORM_CONTRACT}: not a marker's choice but the protocol's fixed door for
+//     every app-form marker, and the one contract a marker may never name itself.
+//   • **The caller never names an app.** A contract-form marker names a CONTRACT and
+//     the host's binding table decides which app opens it (REPO_CONTENT_DISPATCH_SPEC
+//     §4). An app-form marker (`opensWith.app`, BUNDLE_EMBEDDING §4b.1) does name an
+//     app, and this file still never reads it: that form is invoked through the one
+//     fixed contract {@link APP_FORM_CONTRACT} with the directory alone, and the HOST
+//     reads the marker, resolves the opener and offers it before anything runs
+//     (§4b.2 rule 2). So there is still nothing app-shaped to parse, or to pass on.
+
+/**
+ * The contract an APP-form marker is opened through (BUNDLE_EMBEDDING §4b.2 rule 2).
+ * The one task name in this file, and deliberately so: it is not a marker's choice
+ * but the protocol's single door for every app-declared bundle, whatever app it names.
+ * A task-form marker naming it offers nothing (the host refuses the cycle).
+ */
+export const APP_FORM_CONTRACT = "open-declared";
 
 /** The marker file a directory carries to declare what opens it. */
 export const CONTENT_MARKER_FILE = "immediately.run.json";
 
 /** What a marker declares, once validated. */
 export interface OpensWithMarker {
-  /** The task CONTRACT that opens this directory. */
+  /** The task CONTRACT to invoke: the marker's own `task`, or {@link APP_FORM_CONTRACT}
+   *  for an app-form marker. */
   task: string;
-  /** The contract shape version the author wrote (`"1.0"` when omitted). */
+  /** The CONTRACT version: the one the author wrote for the task form (`"1.0"` when
+   *  omitted), and always `"1.0"` for the app form — whose own `version` is a bundle
+   *  format the host checks against the opener, not a contract version. */
   version: string;
   /** What the directory IS, in the author's words — the label's only source. */
   kind?: string;
@@ -72,9 +90,10 @@ export function openWithLabel(kind: string | undefined): string {
 /**
  * Parse a marker file's TEXT into a validated marker, or null.
  *
- * Never throws: unreadable bytes, invalid JSON, a non-object, a missing or non-string
- * `opensWith.task` all mean "no marker" — the same outcome as a folder that carries
- * none at all.
+ * Never throws: unreadable bytes, invalid JSON, a non-object, a marker with neither
+ * (or both) of `opensWith.task` / `opensWith.app` all mean "no marker" — the same
+ * outcome as a folder that carries none at all. An app-form marker comes back as
+ * {@link APP_FORM_CONTRACT}; the app it names is never returned.
  */
 export function parseOpensWith(text: string | null | undefined): OpensWithMarker | null {
   if (typeof text !== "string" || text.trim() === "") return null;
@@ -88,16 +107,38 @@ export function parseOpensWith(text: string | null | undefined): OpensWithMarker
   const opensWith = (obj as { opensWith?: unknown }).opensWith;
   if (!opensWith || typeof opensWith !== "object" || Array.isArray(opensWith)) return null;
   const task = (opensWith as { task?: unknown }).task;
-  if (typeof task !== "string" || task.trim() === "") return null;
-  const version = (opensWith as { version?: unknown }).version;
+  const app = (opensWith as { app?: unknown }).app;
   const kind = (obj as { kind?: unknown }).kind;
+  const kindPart = typeof kind === "string" && kind.trim() !== "" ? { kind: kind.trim() } : {};
+  // The app form is offered only where the HOST would accept it (site-main
+  // `parseContentMarker`, §4b.1), with the host's own untrimmed emptiness test. A marker
+  // it refuses reaches `no-target` at invoke, which does not withdraw the shared
+  // open-declared affordance — so offering one would be a dead click on every visit.
+  const hostHasTask = typeof task === "string" && task !== "";
+  const hostHasApp = typeof app === "string" && app !== "";
+  if (hostHasTask && hostHasApp) return null; // ambiguous-opens
+  if (hostHasApp) {
+    if ((opensWith as { entry?: unknown }).entry !== undefined) return null; // entry-in-app
+    if ((app as string).includes("@")) return null; // revision-in-app
+    if (!(typeof kind === "string" && kind !== "")) return null; // missing-kind
+    // Opened through the fixed contract at its own v1. The marker's `version` is the
+    // BUNDLE format the opener must cover (§4b.1) — the host checks it against the
+    // opener's `opens` range, so it is not a contract version and not ours.
+    return { task: APP_FORM_CONTRACT, version: "1.0", ...kindPart };
+  }
+  const hasTask = typeof task === "string" && task.trim() !== "";
+  if (!hasTask) return null;
+  // A task-form marker naming the app-form door would re-enter the contract that read
+  // it; the host refuses that as a cycle (`openDeclaredRefusal`), so it offers nothing.
+  if ((task as string).trim() === APP_FORM_CONTRACT) return null;
+  const version = (opensWith as { version?: unknown }).version;
   return {
-    task: task.trim(),
+    task: (task as string).trim(),
     // An omitted version means the contract's v1 shape. The host still enforces the
     // T31 compatibility check against the BOUND app at invoke time, so defaulting
     // here widens nothing.
     version: typeof version === "string" && version.trim() !== "" ? version.trim() : "1.0",
-    ...(typeof kind === "string" && kind.trim() !== "" ? { kind: kind.trim() } : {}),
+    ...kindPart,
   };
 }
 
