@@ -119,7 +119,8 @@ export function parseOpensWith(text: string | null | undefined): OpensWithMarker
   if (hostHasTask && hostHasApp) return null; // ambiguous-opens
   if (hostHasApp) {
     if ((opensWith as { entry?: unknown }).entry !== undefined) return null; // entry-in-app
-    if ((app as string).includes("@")) return null; // revision-in-app
+    // revision-in-app: a ref (`@…`) or a commit pin (`#…`) — the reader chooses the commit.
+    if ((app as string).includes("@") || (app as string).includes("#")) return null;
     if (!(typeof kind === "string" && kind !== "")) return null; // missing-kind
     // Opened through the fixed contract at its own v1. The marker's `version` is the
     // BUNDLE format the opener must cover (§4b.1) — the host checks it against the
