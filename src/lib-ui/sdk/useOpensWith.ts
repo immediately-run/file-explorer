@@ -10,8 +10,8 @@
 // Wrapping `readdir` rather than probing eagerly from the root is what keeps the cost
 // proportional to what the user actually looks at: an unopened subtree is never probed.
 import { useCallback, useMemo, useRef, useState } from "react";
-import { probeOffer, DECLARED_TASKS, DECLARED_LAUNCHES } from "./openWith";
-import { opensInPlaceOffer } from "../opensWith";
+import { readMarker, DECLARED_TASKS, DECLARED_LAUNCHES } from "./openWith";
+import { opensInPlaceOffer, opensWithOffer, viewOffers } from "../opensWith";
 import type { OpensWithOffer } from "../opensWith";
 import { joinPath } from "../explorer";
 import type { DirEntry, FsSource } from "../types";
@@ -31,11 +31,14 @@ export interface OpensWithState {
   inPlaceFor: (dirAbsPath: string) => OpensWithOffer | null;
   /** Stop offering a contract the host refused — the affordance withdraws itself. */
   withdraw: (task: string) => void;
+  /** R3-789 — one offer per VIEW the directory's marker declares (§4b.1a), in order. */
+  viewOffersFor: (dirAbsPath: string) => OpensWithOffer[];
 }
 
 /** Wrap `fs` so listing a directory also learns which of its children are content. */
 export function useOpensWith(fs: FsSource): OpensWithState {
   const [offers, setOffers] = useState<ReadonlyMap<string, OpensWithOffer | null>>(new Map());
+  const [views, setViews] = useState<ReadonlyMap<string, OpensWithOffer[]>>(new Map());
   const [unavailable, setUnavailable] = useState<ReadonlySet<string>>(new Set());
   // Probed paths are tracked in a ref, not state: this is "have we asked", which must
   // be correct across concurrent listings and must not itself trigger a render.
@@ -44,10 +47,14 @@ export function useOpensWith(fs: FsSource): OpensWithState {
     async (source: FsSource, dirAbsPath: string) => {
       if (probed.current.has(dirAbsPath)) return;
       probed.current.add(dirAbsPath);
-      const offer = await probeOffer(source, dirAbsPath, { offerable: DECLARED_TASKS });
+      // ONE read serves both: the marker's own offer and its declared views (R3-789).
+      const text = await readMarker(source, dirAbsPath);
+      const offer = opensWithOffer(text, { offerable: DECLARED_TASKS });
+      const declared = viewOffers(text, { offerable: DECLARED_TASKS });
       // Cache negatives too — that is the common answer, and re-reading it on every
       // menu open would be the expensive version of "this folder is just a folder".
       setOffers((prev) => new Map(prev).set(dirAbsPath, offer));
+      if (declared.length > 0) setViews((prev) => new Map(prev).set(dirAbsPath, declared));
     },
     [],
   );
@@ -88,5 +95,11 @@ export function useOpensWith(fs: FsSource): OpensWithState {
     setUnavailable((prev) => (prev.has(task) ? prev : new Set(prev).add(task)));
   }, []);
 
-  return { fs: wrapped, offerFor, inPlaceFor, withdraw };
+  const viewOffersFor = useCallback(
+    (dirAbsPath: string): OpensWithOffer[] =>
+      (views.get(dirAbsPath) ?? []).filter((o) => !unavailable.has(o.task)),
+    [views, unavailable],
+  );
+
+  return { fs: wrapped, offerFor, inPlaceFor, withdraw, viewOffersFor };
 }

@@ -4,7 +4,7 @@
 // The DECISION is in `../opensWith` (pure, host-free). This file is the wiring: the
 // declared contract list, the probe that reads a directory's marker, and the invoke.
 import { invokeTask, capDir, launch } from "@immediately-run/sdk";
-import { CONTENT_MARKER_FILE, opensWithOffer, withdrawsOffer } from "../opensWith";
+import { CONTENT_MARKER_FILE, opensWithOffer, viewOffers, withdrawsOffer } from "../opensWith";
 import type { OpensWithOffer } from "../opensWith";
 import { grantedModeAt, joinPath, toMountRel } from "../explorer";
 import type { ExplorerRoot, FsSource } from "../types";
@@ -52,6 +52,15 @@ export async function readMarker(fs: FsSource, dirAbsPath: string): Promise<stri
 export const MAX_MARKER_BYTES = 64 * 1024;
 
 /** Probe one directory: its offer under `policy`, or null for no affordance. */
+/** R3-789 — the marker's declared-view offers (§4b.1a), from the same one read. */
+export async function probeViewOffers(
+  fs: FsSource,
+  dirAbsPath: string,
+  policy: { offerable: readonly string[]; unavailable?: ReadonlySet<string> },
+): Promise<OpensWithOffer[]> {
+  return viewOffers(await readMarker(fs, dirAbsPath), policy);
+}
+
 export async function probeOffer(
   fs: FsSource,
   dirAbsPath: string,
@@ -90,6 +99,8 @@ export async function openWith(
   try {
     await invokeTask(offer.task, {
       dir: capDir({ mountId: root.id, relPath }, { mode: grantedModeAt(root, relPath) }),
+      // R3-789: a declared view is selected by NAME; the host resolves its app.
+      ...(offer.view !== undefined ? { view: offer.view } : {}),
     });
     return { status: "opened" };
   } catch (e) {

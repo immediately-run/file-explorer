@@ -60,8 +60,11 @@ export interface OpensWithMarker {
 export interface OpensWithOffer {
   task: string;
   version: string;
-  /** The menu label, derived from the marker's `kind`. */
+  /** The menu label, derived from the marker's `kind` (or a declared view's `name`). */
   label: string;
+  /** R3-789 (BUNDLE_EMBEDDING §4b.1a) — the NAME of a view the marker declares, passed to
+   *  `open-declared` as `view`. The view's app is never read here: the host resolves it. */
+  view?: string;
 }
 
 /** What the app may currently offer. Data, not code — see the header. */
@@ -82,6 +85,57 @@ export interface OpensWithPolicy {
 const KIND_RE = /^[a-z0-9][a-z0-9 _-]{0,23}$/i;
 
 /** The label for a marker `kind`, or the generic one when there is no usable kind. */
+/** §4b.1a: at most this many declared views per marker; names are plain text ≤ 40 chars. */
+const MAX_VIEWS = 8;
+const VIEW_NAME_MAX = 40;
+// Control characters and bidi overrides — a label must read as what it is.
+const isUnsafeLabelChar = (c: number): boolean =>
+  c <= 0x1f || (c >= 0x7f && c <= 0x9f) || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069);
+const hasUnsafeLabelChar = (s: string): boolean => [...s].some((ch) => isUnsafeLabelChar(ch.codePointAt(0) ?? 0));
+const unsafeSubtree = (s: unknown): boolean =>
+  typeof s !== "string" ||
+  !s.startsWith("/") ||
+  s.includes("\0") ||
+  s.includes("\\") ||
+  s.split("/").slice(1).some((seg, i, all) => seg === "." || seg === ".." || (seg === "" && i < all.length - 1));
+
+/**
+ * R3-789 (§4b.1a) — one offer per VIEW the marker declares, each invoking `open-declared`
+ * with `view: <name>`. Mirrors the host's view refusals (`parseContentMarker`): app form only,
+ * revision-less, no `entry`, a bundle-absolute traversal-free `subtree`, a plain name, no
+ * duplicates, at most eight — a view the host would refuse is not offered (a dead click).
+ * The view's app is validated but never returned: the host resolves it.
+ */
+export function viewOffers(text: string | null | undefined, policy: OpensWithPolicy): OpensWithOffer[] {
+  if (!policy.offerable.includes(APP_FORM_CONTRACT) || policy.unavailable?.has(APP_FORM_CONTRACT)) return [];
+  if (typeof text !== "string" || text.trim() === "") return [];
+  let obj: unknown;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const views = obj && typeof obj === "object" && !Array.isArray(obj) ? (obj as { views?: unknown }).views : undefined;
+  if (!Array.isArray(views)) return [];
+  const out: OpensWithOffer[] = [];
+  const seen = new Set<string>();
+  for (const v of views) {
+    if (out.length >= MAX_VIEWS) break;
+    if (!v || typeof v !== "object" || Array.isArray(v)) continue;
+    const e = v as Record<string, unknown>;
+    const name = typeof e.name === "string" ? e.name.trim() : "";
+    if (name === "" || name.length > VIEW_NAME_MAX || hasUnsafeLabelChar(name) || seen.has(name)) continue;
+    const ow = e.opensWith as Record<string, unknown> | undefined;
+    if (!ow || typeof ow !== "object" || Array.isArray(ow) || "task" in ow || ow.entry !== undefined) continue;
+    const app = ow.app;
+    if (typeof app !== "string" || app === "" || app.includes("@") || app.includes("#")) continue;
+    if (unsafeSubtree(e.subtree)) continue;
+    seen.add(name);
+    out.push({ task: APP_FORM_CONTRACT, version: "1.0", label: `Open as ${name}`, view: name });
+  }
+  return out;
+}
+
 export function openWithLabel(kind: string | undefined): string {
   const trimmed = typeof kind === "string" ? kind.trim() : "";
   return KIND_RE.test(trimmed) ? `Open as ${trimmed.toLowerCase()}` : "Open with its app";

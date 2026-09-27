@@ -28,6 +28,7 @@ import { sdkFsSource } from "./mountFs";
 import { makeSdkActions } from "./actions";
 import { summarizeMenuItems } from "./summarize";
 import { useOpensWith } from "./useOpensWith";
+import type { OpensWithOffer } from "../opensWith";
 import { openWith, openInPlace } from "./openWith";
 import SummaryModal, { type SummaryTarget } from "./SummaryModal";
 import type { ExplorerActions, MenuItem, RowCtx } from "../types";
@@ -145,15 +146,16 @@ function SdkFileExplorer() {
   // R3-267: the `opensWith` caller. The wrapped fs probes each listed directory for
   // its content marker, so a folder that declares what opens it can be offered one.
   // R3-159 adds the into-stage twin: a launchable contract also gets "Open in place".
-  const { fs: opensWithFs, offerFor, inPlaceFor, withdraw } = useOpensWith(sdkFsSource);
+  const { fs: opensWithFs, offerFor, inPlaceFor, withdraw, viewOffersFor } = useOpensWith(sdkFsSource);
   const rootByPath = useCallback(
     (absPath: string) => shownRoots.find((r) => absPath === r.path || absPath.startsWith(`${r.path}/`)) ?? null,
     [shownRoots],
   );
   const runOpenWith = useCallback(
-    (absPath: string) => {
+    // `chosen` — a declared view's offer (R3-789); absent ⇒ the marker's own offer.
+    (absPath: string, chosen?: OpensWithOffer) => {
       const root = rootByPath(absPath);
-      const offer = offerFor(absPath);
+      const offer = chosen ?? offerFor(absPath);
       if (!root || !offer) return;
       // Fire-and-forget: the host draws the viewer. Every refusal is handled inside
       // `openWith` — `cancelled` is the ordinary close, and a contract-level refusal
@@ -184,7 +186,8 @@ function SdkFileExplorer() {
     // here (only a manifest entry, which the host enforces anyway).
     const offer = ctx.isDir ? offerFor(ctx.absPath) : null;
     const inPlace = ctx.isDir ? inPlaceFor(ctx.absPath) : null;
-    if (offer || inPlace) {
+    const declaredViews = ctx.isDir ? viewOffersFor(ctx.absPath) : [];
+    if (offer || inPlace || declaredViews.length > 0) {
       // Unshifted as a pair so the for-result offer leads and the into-stage twin
       // (R3-159) sits directly under it, above everything else the menu offers.
       const openItems: MenuItem[] = [];
@@ -196,6 +199,15 @@ function SdkFileExplorer() {
           onSelect: () => runOpenWith(ctx.absPath),
         });
       }
+      // R3-789 (§4b.1a): one item per declared view, under the bundle's own offer.
+      declaredViews.forEach((v, i) => {
+        openItems.push({
+          key: `open-view-${i}`,
+          label: v.label,
+          icon: <BookOpen size={14} aria-hidden="true" />,
+          onSelect: () => runOpenWith(ctx.absPath, v),
+        });
+      });
       if (inPlace) {
         openItems.push({
           key: "open-in-place",
@@ -220,7 +232,7 @@ function SdkFileExplorer() {
       });
     }
     return items;
-  }, [offerFor, inPlaceFor, runOpenWith, runOpenInPlace]);
+  }, [offerFor, inPlaceFor, viewOffersFor, runOpenWith, runOpenInPlace]);
 
   // Apps with per-user settings that aren't mounted yet — click to open
   // (`settings:all`). An already-opened settings mount renders as its own root

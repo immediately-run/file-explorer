@@ -1,4 +1,5 @@
 import {
+  viewOffers,
   APP_FORM_CONTRACT,
   CONTENT_MARKER_FILE,
   openWithLabel,
@@ -194,3 +195,48 @@ describe("withdrawsOffer — a cancel is not a refusal", () => {
     expect(withdrawsOffer(undefined)).toBe(false);
   });
 });
+
+// R3-789 (BUNDLE_EMBEDDING §4b.1a) — one offer per declared view; the view's app never leaves.
+describe("viewOffers — declared views", () => {
+  const board = {
+    name: "Roadmap board",
+    opensWith: { app: "github:immediately-run/kanban-board", version: "1.0" },
+    subtree: "/roadmap",
+  };
+  const wiki = (views: unknown) => marker({ opensWith: { task: "open-wiki" }, kind: "wiki", views });
+  const declared = { offerable: ["open-wiki", "open-declared"] };
+
+  it("offers each view by name through open-declared, and carries no app", () => {
+    const o = viewOffers(wiki([board, { ...board, name: "Specs board", subtree: "/specs" }]), declared);
+    expect(o).toEqual([
+      { task: "open-declared", version: "1.0", label: "Open as Roadmap board", view: "Roadmap board" },
+      { task: "open-declared", version: "1.0", label: "Open as Specs board", view: "Specs board" },
+    ]);
+    expect(JSON.stringify(o)).not.toContain("kanban-board");
+  });
+
+  it.each<[string, unknown]>([
+    ["a revision in app", { ...board, opensWith: { app: "github:a/b@main" } }],
+    ["a commit pin in app", { ...board, opensWith: { app: `github:a/b#${"a".repeat(40)}` } }],
+    ["an entry key", { ...board, opensWith: { ...board.opensWith, entry: "x" } }],
+    ["the task form", { ...board, opensWith: { task: "open-wiki" } }],
+    ["a traversing subtree", { ...board, subtree: "/a/../b" }],
+    ["a relative subtree", { ...board, subtree: "roadmap" }],
+    ["a bidi name", { ...board, name: "a\u202eb" }],
+    ["an empty name", { ...board, name: " " }],
+  ])("mirrors the host and does not offer %s", (_why, v) => {
+    expect(viewOffers(wiki([v]), declared)).toEqual([]);
+  });
+
+  it("offers nothing when this app does not invoke open-declared, or it was withdrawn", () => {
+    expect(viewOffers(wiki([board]), { offerable: ["open-wiki"] })).toEqual([]);
+    expect(viewOffers(wiki([board]), { ...declared, unavailable: new Set(["open-declared"]) })).toEqual([]);
+  });
+
+  it("drops duplicates and caps at eight", () => {
+    expect(viewOffers(wiki([board, board]), declared)).toHaveLength(1);
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...board, name: `v${i}` }));
+    expect(viewOffers(wiki(many), declared)).toHaveLength(8);
+  });
+});
+
