@@ -224,8 +224,34 @@ describe("viewOffers — declared views", () => {
     ["a relative subtree", { ...board, subtree: "roadmap" }],
     ["a bidi name", { ...board, name: "a\u202eb" }],
     ["an empty name", { ...board, name: " " }],
+    ["the root subtree (the host refuses '/')", { ...board, subtree: "/" }],
+    ["an empty segment", { ...board, subtree: "/a//b" }],
+    ["a name with a trailing tab (the host tests the untrimmed name)", { ...board, name: "Board\t" }],
   ])("mirrors the host and does not offer %s", (_why, v) => {
     expect(viewOffers(wiki([v]), declared)).toEqual([]);
+  });
+
+  it.each([0x00, 0x1f, 0x7f, 0x9f, 0x061c, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202e, 0x2066, 0x2069])(
+    "refuses a name carrying code unit %i — the host's label class, every range edge",
+    (c) => {
+      expect(viewOffers(wiki([{ ...board, name: `Board${String.fromCharCode(c)}x` }]), declared)).toEqual([]);
+    },
+  );
+
+  it.each([
+    ["no opensWith", { kind: "wiki" }],
+    ["task and app together (ambiguous-opens)", { opensWith: { task: "open-wiki", app: "github:a/b" }, kind: "wiki" }],
+    ["an app-form marker with an entry", { opensWith: { app: "github:a/b", entry: "x" }, kind: "board" }],
+    ["an app-form marker with a revision", { opensWith: { app: "github:a/b@main" }, kind: "board" }],
+    ["an app-form marker with no kind", { opensWith: { app: "github:a/b" } }],
+  ])("offers no views on a marker the host rejects as a whole: %s", (_why, top) => {
+    expect(viewOffers(marker({ ...top, views: [board] }), declared)).toEqual([]);
+  });
+
+  it("accepts the subtrees the host accepts, including a trailing slash", () => {
+    for (const subtree of ["/a", "/a/", "/a/b"]) {
+      expect(viewOffers(wiki([{ ...board, subtree }]), declared)).toHaveLength(1);
+    }
   });
 
   it("offers nothing when this app does not invoke open-declared, or it was withdrawn", () => {
