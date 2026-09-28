@@ -90,6 +90,8 @@ export async function openWith(
   try {
     await invokeTask(offer.task, {
       dir: capDir({ mountId: root.id, relPath }, { mode: grantedModeAt(root, relPath) }),
+      // R3-789: a declared view is selected by NAME; the host resolves its app.
+      ...(offer.view !== undefined ? { view: offer.view } : {}),
     });
     return { status: "opened" };
   } catch (e) {

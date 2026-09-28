@@ -135,6 +135,14 @@ describe("probeOffer", () => {
     expect(JSON.stringify(invokeTask.mock.calls[0])).not.toContain("kanban-board");
   });
 
+  it("a declared view is invoked through open-declared with dir AND the view's name — never its app (R3-789)", async () => {
+    const offer = { task: "open-declared", version: "1.0", label: "Open as Roadmap board", view: "Roadmap board" };
+    await openWith(root({ id: "space:docs", path: "/docs" }), "/docs/content", offer);
+    expect(invokeTask.mock.calls[0][0]).toBe("open-declared");
+    expect(Object.keys(invokeTask.mock.calls[0][1]).sort()).toEqual(["dir", "view"]);
+    expect(invokeTask.mock.calls[0][1].view).toBe("Roadmap board");
+  });
+
   it("offers nothing for a marker naming a contract this app does not invoke", async () => {
     const fs = fsWith({ "/spaces/abc/x/immediately.run.json": '{"opensWith":{"task":"open-hologram"}}' });
     await expect(probeOffer(fs, "/spaces/abc/x", { offerable: DECLARED_TASKS })).resolves.toBeNull();

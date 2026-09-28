@@ -16,8 +16,12 @@ const TREE: Record<string, DirEntry[]> = {
     { name: "board", isDir: true },
     { name: "sketches", isDir: true },
     { name: "shed", isDir: true },
+    { name: "content", isDir: true },
+    { name: "orphan-views", isDir: true },
     { name: "note.md", isDir: false },
   ],
+  "/spaces/s1/content": [{ name: "roadmap", isDir: true }],
+  "/spaces/s1/orphan-views": [],
   "/spaces/s1/handbook": [{ name: "home.mdx", isDir: false }],
   "/spaces/s1/board": [{ name: "objects.json", isDir: false }],
   "/spaces/s1/sketches": [],
@@ -34,6 +38,23 @@ const MARKERS: Record<string, string> = {
   "/spaces/s1/board/immediately.run.json": JSON.stringify({
     opensWith: { task: "open-project" },
     kind: "board",
+  }),
+  // R3-789: a wiki declaring a named view (§4b.1a), and a marker the host rejects as a whole
+  // (no opensWith) whose views must therefore never be offered.
+  "/spaces/s1/content/immediately.run.json": JSON.stringify({
+    opensWith: { task: "open-wiki", version: "1.0" },
+    kind: "wiki",
+    views: [
+      {
+        name: "Roadmap board",
+        opensWith: { app: "github:immediately-run/kanban-board", version: "1.0" },
+        subtree: "/roadmap",
+      },
+    ],
+  }),
+  "/spaces/s1/orphan-views/immediately.run.json": JSON.stringify({
+    kind: "wiki",
+    views: [{ name: "Board", opensWith: { app: "github:a/b" }, subtree: "/r" }],
   }),
   "/spaces/s1/sketches/immediately.run.json": JSON.stringify({
     opensWith: { task: "open-hologram" },
@@ -308,4 +329,54 @@ describe("R3-159 — a launchable marker ALSO gets the into-stage affordance", (
       expect(screen.queryByText(new RegExp(code))).not.toBeInTheDocument();
     },
   );
+});
+
+describe("R3-789 — a declared view gets its own 'Open as <name>' (§4b.1a)", () => {
+  const settle = async (dir: string) => {
+    await screen.findByText(dir);
+    await waitFor(() => expect(h.readFile).toHaveBeenCalledWith(`/spaces/s1/${dir}/immediately.run.json`));
+  };
+
+  it("offers the view beside the bundle's own offer, and opens it by NAME through open-declared", async () => {
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+    await settle("content");
+    await waitFor(() => expect(menuLabelsFor("content")).toContain("Open as Roadmap board"));
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    const menu = await menuFor("content");
+    expect(within(menu).getByRole("menuitem", { name: /Open as wiki/ })).toBeInTheDocument();
+    await user.click(within(menu).getByRole("menuitem", { name: /Open as Roadmap board/ }));
+
+    expect(h.invokeTask).toHaveBeenCalledTimes(1);
+    const [task, params] = h.invokeTask.mock.calls[0] as [string, Record<string, unknown>];
+    expect(task).toBe("open-declared");
+    // The view's NAME and the folder — never its app, never an entry.
+    expect(params).toEqual({
+      dir: { $cap: "dir", mountId: "space:s1", relPath: "/content", mode: "rw" },
+      view: "Roadmap board",
+    });
+  });
+
+  it("a withdrawn open-declared removes the view item and leaves the bundle's own offer", async () => {
+    h.invokeTask.mockRejectedValue(Object.assign(new Error("nope"), { code: "no-such-task" }));
+    const user = userEvent.setup();
+    render(<FileExplorer />);
+    await settle("content");
+    await waitFor(() => expect(menuLabelsFor("content")).toContain("Open as Roadmap board"));
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await user.click(within(await menuFor("content")).getByRole("menuitem", { name: /Open as Roadmap board/ }));
+    await waitFor(() => expect(h.invokeTask).toHaveBeenCalledTimes(1));
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(menuLabelsFor("content")).not.toContain("Open as Roadmap board"));
+    expect(menuLabelsFor("content")).toContain("Open as wiki");
+  });
+
+  it("views on a marker the host rejects as a whole are never offered", async () => {
+    render(<FileExplorer />);
+    await settle("orphan-views");
+    expect(menuLabelsFor("orphan-views")).toEqual([]);
+  });
 });
