@@ -741,25 +741,41 @@ function FileExplorerView({
   // Gesture-gated reveal: one-shot per nonce. Expand the ancestors, then scroll
   // the row into view once it renders (children load lazily on expand, so poll
   // briefly and give up quietly). scrollIntoView only — focus NEVER moves.
+  //
+  // `rootKey` (declared here so BOTH reveal effects share it) is in the deps for
+  // the same reason FX-4b documents below: the reveal routinely lands before the
+  // mounts do (R3-440 — now guaranteed by the host holding the one-shot until the
+  // app's `reportReady`, which fires at the mount effect, before any roots reach
+  // the store), and a `revealPath` against an empty root set is silently inert.
+  // The expansion is idempotent, so a roots-arrived re-run is a retry, not a
+  // re-fire; the nonce guard keeps the SCROLL one-shot per gesture.
+  const rootKey = useMemo(
+    () => ordered.map((m) => m.path).join("\u0000"),
+    [ordered],
+  );
   const panelElRef = useRef<HTMLElement | null>(null);
-  const lastRevealNonceRef = useRef<number | null>(null);
+  // One SCROLL per gesture (the nonce), but the poll re-arms on a roots change
+  // until the row exists: a reveal that landed during boot expands via the
+  // idempotent retry and still scrolls once the tree can show it. A path that
+  // is never in the tree gives up per round and stays put.
+  const scrolledRevealNonceRef = useRef<number | null>(null);
   useEffect(() => {
     if (!reveal) return;
-    if (lastRevealNonceRef.current === reveal.nonce) return;
-    lastRevealNonceRef.current = reveal.nonce;
     store.revealPath(reveal.path);
+    if (scrolledRevealNonceRef.current === reveal.nonce) return;
     let tries = 0;
     const timer = setInterval(() => {
       const el = panelElRef.current?.querySelector(".tnode--viewed");
       if (el) {
         el.scrollIntoView({ block: "nearest" });
+        scrolledRevealNonceRef.current = reveal.nonce;
         clearInterval(timer);
       } else if (++tries > 16) {
-        clearInterval(timer); // rows never appeared (path not in this tree) — stay put
+        clearInterval(timer); // no rows this round — a roots change re-arms
       }
     }, 150);
     return () => clearInterval(timer);
-  }, [reveal, store]);
+  }, [reveal, store, rootKey]);
 
   // Reveal the EDITOR's active file (FX-4b). Distinct from the stage hint above in
   // both trust and intent: `activeFile` rides the elevated `editor-context` push
@@ -784,10 +800,7 @@ function FileExplorerView({
   // routinely lands before the mounts do, and `revealPath` can only expand under
   // roots the store already knows — a reveal against an empty root set is silently
   // inert, and `activePath` alone would never fire again to retry it.
-  const rootKey = useMemo(
-    () => ordered.map((m) => m.path).join("\u0000"),
-    [ordered],
-  );
+  // (Declared above, shared with the gesture-reveal effect.)
   useEffect(() => {
     if (!activePath) return;
     store.revealPath(activePath);

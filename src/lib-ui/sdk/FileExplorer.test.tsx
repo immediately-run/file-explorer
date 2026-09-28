@@ -832,7 +832,44 @@ describe("viewed-document reveal + ancestor dot", () => {
     expect(mine[0]).toBe(1);
   });
 
-  it("a host `viewed-reveal` expands the ancestors and scrolls the row into view — without focus", async () => {    const scrolls: Element[] = [];
+  it("R3-440: a reveal emitted before the roots exist lands when they arrive (the rootKey retry)", async () => {
+    const scrolls: Element[] = [];
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function () {
+      scrolls.push(this);
+    };
+    try {
+      // The boot race the host's readiness gate exposes: the report fires at the
+      // mount effect, so the held reveal can land while the store has NO roots.
+      // (The marker itself rides the `viewedFile` hint — the host pushes it with
+      // the navigation; the reveal is the expand+scroll gesture half.)
+      h.viewedFile = "/src/index.ts";
+      h.mounts = [];
+      const { rerender } = render(<FileExplorer />);
+      act(() => h.emit("viewed-reveal", { type: "viewed-reveal", path: "/src/index.ts" }));
+      expect(screen.queryByText("src")).not.toBeInTheDocument(); // nothing to expand into
+
+      // The mounts arrive (the host's push) — the reveal must RETRY, not be lost.
+      h.mounts = [worktree()];
+      rerender(<FileExplorer />);
+
+      const src = await screen.findByText("src");
+      expect(src).toBeInTheDocument();
+      // The ancestors expanded on their own: the file row renders without any click…
+      const row = await screen.findByText("index.ts");
+      expect(row).toBeInTheDocument();
+      // …carrying the marker, scrolled into view once it rendered.
+      expect(
+        await screen.findByRole("img", { name: "Shown in the running app" }),
+      ).toBeInTheDocument();
+      await waitFor(() => expect(scrolls.length).toBeGreaterThan(0));
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  it("a host `viewed-reveal` expands the ancestors and scrolls the row into view — without focus", async () => {
+    const scrolls: Element[] = [];
     const orig = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = function () {
       scrolls.push(this);

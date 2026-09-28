@@ -97,6 +97,15 @@ function SdkFileExplorer() {
       // IMMEDIATELY after subscribing — the host holds a gesture's pending
       // `viewed-reveal` until this report, and a raw dispatch sent before it
       // is silently dropped. A frame that never reports never receives.
+      //
+      // This deliberately overloads the SDK's skeleton-timing contract
+      // (ready.ts: "not at mount"): this report is LISTENER readiness, and the
+      // skeleton cost is nil because the mount effect commits with the root
+      // render (max(commit, report) ≈ commit). The spend is permanent
+      // (first-call-wins), and accepted: this app has no later usefully-
+      // interactive moment to delay for. The boot race the report opens
+      // (a reveal released before roots exist) is closed by the view's
+      // rootKey retry, not by reporting later. TOOLS_ACTIVITY_SPEC §4.1.
       reportReady();
     } catch {
       /* no host transport — a standalone dev-server render */
