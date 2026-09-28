@@ -13,6 +13,7 @@ import {
   useEditorContext,
   listSettingsApps,
   openSettingsOf,
+  reportReady,
   requestMount,
   useMounts,
   useRegion,
@@ -92,6 +93,11 @@ function SdkFileExplorer() {
           setReveal({ path: m.path, nonce: revealNonceRef.current });
         }
       });
+      // R3-440 (the R3-392 readiness contract, extended): report ready
+      // IMMEDIATELY after subscribing — the host holds a gesture's pending
+      // `viewed-reveal` until this report, and a raw dispatch sent before it
+      // is silently dropped. A frame that never reports never receives.
+      reportReady();
     } catch {
       /* no host transport — a standalone dev-server render */
     }

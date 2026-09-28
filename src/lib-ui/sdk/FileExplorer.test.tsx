@@ -45,6 +45,13 @@ const h = vi.hoisted(() => ({
   // The arg is recorded by the spy via the factory call below, so the impl needs
   // no param; assertions use `toHaveBeenCalledWith`.
   openInEditor: vi.fn((): Promise<void> => Promise.resolve()),
+  // R3-440: reportReady — recorded, with the subscription state captured AT the
+  // call so the ordering contract ("report immediately after subscribing") is
+  // assertable rather than assumed.
+  reportReady: vi.fn(() => {
+    h.reportReadyListenerCount.push(h.rawListeners.get("viewed-reveal")?.size ?? 0);
+  }),
+  reportReadyListenerCount: [] as number[],
   deleteEntry: vi.fn((): Promise<void> => Promise.resolve()),
   renameEntry: vi.fn((): Promise<void> => Promise.resolve()),
   uploadFile: vi.fn((): Promise<void> => Promise.resolve()),
@@ -96,6 +103,10 @@ vi.mock("@immediately-run/sdk", () => ({
   openSettingsOf: vi.fn(() => Promise.resolve({ type: "firestore", path: "/mnt/set", id: "settings:x" })),
   requestMount: () => h.requestMount(),
   useRegion: () => h.region,
+  // R3-440: the readiness report the host gates the viewed-reveal one-shot on.
+  // The mock asserts the CONTRACT at call time: the reveal listener must already
+  // be subscribed (a report before it would release reveals nobody hears).
+  reportReady: () => h.reportReady(),
 }));
 
 vi.mock("./mountFs", () => ({
@@ -809,8 +820,19 @@ describe("viewed-document reveal + ancestor dot", () => {
     expect(screen.queryByText("index.ts")).not.toBeInTheDocument();
   });
 
-  it("a host `viewed-reveal` expands the ancestors and scrolls the row into view — without focus", async () => {
-    const scrolls: Element[] = [];
+  it("R3-440: the app reports ready immediately after subscribing the reveal listener (the host holds pending reveals until then)", async () => {
+    const before = h.reportReadyListenerCount.length;
+    render(<FileExplorer />);
+    await screen.findByText("src");
+    const mine = h.reportReadyListenerCount.slice(before);
+    expect(mine).toHaveLength(1); // exactly one report per mount (the SDK dedupes beyond that)
+    // The ordering IS the contract: at the report, the viewed-reveal listener
+    // was already subscribed (a report before it would release the host's held
+    // one-shot into a frame that cannot hear it).
+    expect(mine[0]).toBe(1);
+  });
+
+  it("a host `viewed-reveal` expands the ancestors and scrolls the row into view — without focus", async () => {    const scrolls: Element[] = [];
     const orig = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = function () {
       scrolls.push(this);
