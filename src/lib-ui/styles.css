@@ -3,11 +3,20 @@
    hard-coded brand values in the rules below.
 
    Token fallback (00-overview §5): a consumer that does NOT ship the design
-   tokens still gets unstyled-but-functional output. The `:where(.fx-root)` block
-   below seeds the tokens the view reads at ZERO specificity, so a real host theme
-   on `:root`/`html` always overrides it. The `FileExplorerView` root element
-   carries the `fx-root` class so these apply. */
-:where(.fx-root) {
+   tokens still gets unstyled-but-functional output. The block below seeds the
+   tokens the view reads.
+
+   R3-827: the seed must STEP ASIDE when the host drives the polarity. The block
+   used to be `:where(.fx-root)` — zero specificity — on the theory that a host
+   theme on `:root`/`html` would override it. That theory is wrong about the
+   cascade: a custom property DECLARED on the element beats one INHERITED from
+   `html` at ANY specificity, so the dark seed shadowed the light palette forever.
+   Scoping the seed to `html:not([data-theme="light"])` keeps it for the
+   tokenless consumer (no attribute → the seed applies) and removes it exactly
+   when the app shell's light palette (`index.css`) is live. The flip side: a
+   consumer that sets `data-theme="light"` without shipping the light tokens gets
+   no fallback — that attribute IS the app's "the tokens are here" signal. */
+:where(html:not([data-theme="light"])) .fx-root {
   --bg: #0a0b11;
   --panel: #13141d;
   --panel-2: #191b26;

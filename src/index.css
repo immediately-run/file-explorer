@@ -82,6 +82,21 @@ html[data-theme="light"] {
     radial-gradient(50% 40% at 12% 8%, rgba(212,69,154,.06), transparent 60%);
 }
 
+/* R3-827 — in light mode the signature gradient turns saturated
+   (magenta→violet), and the library's gradient surfaces hard-code a dark
+   foreground (#16101a ≈ 3.9:1 on the light --grad — under WCAG 2.2 AA's 4.5:1
+   for this size). White reads ≥ 4.5:1 on both gradient ends. The dark-mode
+   foreground is unchanged (the dark --grad is a pale wash). */
+html[data-theme="light"] .cta,
+html[data-theme="light"] .viewswitch__btn--active,
+html[data-theme="light"] .viewswitch__btn--active:hover,
+html[data-theme="light"] .crow--path,
+html[data-theme="light"] .crow--path:hover,
+html[data-theme="light"] .crow--path .crow__icon,
+html[data-theme="light"] .crow--path .crow__chev {
+  color: #ffffff;
+}
+
 /* ---------------------------------------------------------------- reset + base */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html { scroll-behavior: smooth; }
