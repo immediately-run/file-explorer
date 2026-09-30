@@ -5,8 +5,12 @@
 import "./index.css";
 import "./lib-ui/styles.css";
 import SdkFileExplorer from "./lib-ui/sdk";
+import { useHostThemeAttribute } from "./hooks/useHostThemeAttribute";
 
 function App() {
+  // R3-827 — drive `html[data-theme]` from the host's polarity so the light
+  // palette (index.css) actually applies when the host goes light.
+  useHostThemeAttribute();
   return <SdkFileExplorer />;
 }
 
