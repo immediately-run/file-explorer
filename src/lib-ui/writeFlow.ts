@@ -23,9 +23,22 @@ export interface WritePorts {
   begin: () => void;
 }
 
-/** The friendly message for a thrown write error (host rejection code → text). */
-export const writeError = (e: unknown): string =>
-  WRITE_ERR[(e as { code?: string })?.code ?? "unknown"] ?? "Couldn’t complete that change.";
+/** The friendly message for a thrown write error (host rejection code → text).
+ *  R3-853: a `too-large` refusal carrying the host's `limitBytes` names the REAL
+ *  limit; an older host's refusal falls back to the static sentence. */
+export const writeError = (e: unknown): string => {
+  const err = e as { code?: string; limitBytes?: unknown } | null;
+  if (err?.code === "too-large" && typeof err.limitBytes === "number" && Number.isFinite(err.limitBytes) && err.limitBytes > 0) {
+    // Name the limit as the host stated it: integral MiB as an integer, anything
+    // finer to one decimal — rounding to a whole MB would misstate it in BOTH
+    // directions (a 25.4 MB limit reading "25" invites a failing retry; a 1.5 MB
+    // limit reading "2" refuses files that would pass).
+    const mb = err.limitBytes / (1024 * 1024);
+    const named = Number.isInteger(mb) ? String(mb) : mb.toFixed(1);
+    return `That file is over the ${named} MB upload limit.`;
+  }
+  return WRITE_ERR[err?.code ?? "unknown"] ?? "Couldn’t complete that change.";
+};
 
 const plural = (n: number, one: string, many: string): string =>
   `${n} ${n === 1 ? one : many}`;

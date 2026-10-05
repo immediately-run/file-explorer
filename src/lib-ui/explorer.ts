@@ -273,14 +273,17 @@ export const uploadRowFromEvent = (e: { target: EventTarget | null }, fallbackDi
   return uploadTargetDir(row, fallbackDir);
 };
 
-/** A soft client cap on inlined upload/drag bytes; the host enforces the real one. */
-export const MAX_UPLOAD_BYTES = 512 * 1024;
+/** R3-853: the inline-bytes convenience bound for DRAG-OUT only. Inlining is a
+ *  best-effort convenience — a larger file goes reference-only, which is not a
+ *  refusal. The UPLOAD path has no client cap at all anymore: the host enforces
+ *  (and names) the real one (`writeLimits.MAX_TRANSFER_BYTES` in site-main). */
+export const INLINE_DRAG_OUT_BYTES = 1024 * 1024;
 
 /** Map a host write-outcome code to a friendly message (shared by every mutation). */
 export const WRITE_ERR: Record<string, string> = {
   exists: "Something with that name already exists.",
   protected: "That file can’t be deleted.",
-  "too-large": "That file is too large to upload.",
+  "too-large": "That file is too large to upload.", // the no-limitBytes fallback (an older host)
   "not-found": "That file no longer exists.",
   forbidden: "You don’t have permission to change files here.",
   "invalid-params": "That name isn’t valid.",
