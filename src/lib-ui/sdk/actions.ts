@@ -1,10 +1,12 @@
 // `makeSdkActions()` — the SDK adapter's `ExplorerActions` (Phase 02 §B.3). Each
 // method wraps the matching host-gated intent (`editor:open` / `editor:write`) or
-// the cross-app drag-out, carrying over the EXACT path conversion and per-file
-// upload cap the original `FileExplorer.tsx` used. The view passes mount-relative
-// paths (it already trimmed the owning root), so these forward them straight to
-// the SDK; rejections (`{ code }`) propagate to the view's `runWrite`, which maps
-// them through `WRITE_ERR`.
+// the cross-app drag-out, carrying over the exact path conversion the original
+// `FileExplorer.tsx` used. The view passes mount-relative paths (it already
+// trimmed the owning root), so these forward them straight to the SDK; rejections
+// (`{ code }`) propagate to the view's write flow, whose `writeError`
+// (writeFlow.ts) maps them through `WRITE_ERR` — a `too-large` refusal carrying
+// the host's `limitBytes` renders the REAL limit, not a client-side guess
+// (R3-853: there is deliberately no per-file cap here anymore).
 import {
   openInEditor,
   createFile,

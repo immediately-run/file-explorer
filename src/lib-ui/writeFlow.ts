@@ -29,7 +29,13 @@ export interface WritePorts {
 export const writeError = (e: unknown): string => {
   const err = e as { code?: string; limitBytes?: unknown } | null;
   if (err?.code === "too-large" && typeof err.limitBytes === "number") {
-    return `That file is over the ${Math.round(err.limitBytes / (1024 * 1024))} MB upload limit.`;
+    // Name the limit as the host stated it: integral MiB as an integer, anything
+    // finer to one decimal — rounding to a whole MB would misstate it in BOTH
+    // directions (a 25.4 MB limit reading "25" invites a failing retry; a 1.5 MB
+    // limit reading "2" refuses files that would pass).
+    const mb = err.limitBytes / (1024 * 1024);
+    const named = Number.isInteger(mb) ? String(mb) : mb.toFixed(1);
+    return `That file is over the ${named} MB upload limit.`;
   }
   return WRITE_ERR[err?.code ?? "unknown"] ?? "Couldn’t complete that change.";
 };

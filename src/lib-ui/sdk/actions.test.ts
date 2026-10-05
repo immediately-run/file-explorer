@@ -136,13 +136,12 @@ describe("makeSdkActions write contract", () => {
     h.uploadFile.mockRejectedValueOnce(
       Object.assign(new Error("too large"), { code: "too-large", limitBytes: 26214400 }),
     );
-    await expect(actions.upload!(worktree, "/src", [new File(["x"], "big.bin")])).rejects.toMatchObject({
-      code: "too-large",
-    });
-    // The message the reader sees names the host's limit, not a guess.
-    expect(writeError(Object.assign(new Error("x"), { code: "too-large", limitBytes: 26214400 }))).toBe(
-      "That file is over the 25 MB upload limit.",
-    );
+    // Catch the ACTUAL rejection and feed IT to the renderer — the two halves of
+    // the item's case (refusal propagates with limitBytes → the message names the
+    // limit) are asserted on the same error object (review round 1).
+    const err = await actions.upload!(worktree, "/src", [new File(["x"], "big.bin")]).catch((e: unknown) => e);
+    expect(err).toMatchObject({ code: "too-large", limitBytes: 26214400 });
+    expect(writeError(err)).toBe("That file is over the 25 MB upload limit.");
     // …and an older host's refusal (no limitBytes) keeps the static sentence.
     expect(writeError(Object.assign(new Error("x"), { code: "too-large" }))).toBe(
       "That file is too large to upload.",
