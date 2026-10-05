@@ -44,6 +44,7 @@ vi.mock("./mountFs", () => ({
 }));
 
 import { makeSdkActions } from "./actions";
+import { writeError } from "../writeFlow";
 import type { ExplorerRoot } from "../types";
 
 const worktree: ExplorerRoot = {
@@ -116,17 +117,36 @@ describe("makeSdkActions write contract", () => {
     expect(h.deleteEntry).toHaveBeenCalledWith("/src/index.ts");
   });
 
-  it("upload still resolves void (a batch is not an entry) and enforces the size cap", async () => {
+  it("upload still resolves void (a batch is not an entry) and asks the HOST about size (R3-853)", async () => {
     await expect(
       actions.upload!(worktree, "/src", [new File(["x"], "note.txt")]),
     ).resolves.toBeUndefined();
     expect(h.uploadFile).toHaveBeenCalledWith("/src/note.txt", expect.any(Uint8Array));
 
-    const big = new File(["x"], "big.bin");
-    Object.defineProperty(big, "size", { value: 1024 * 1024 });
-    await expect(actions.upload!(worktree, "/src", [big])).rejects.toMatchObject({
+    // R3-853: the client-side precheck is GONE — a 2 MiB file (over the old
+    // guessed 512 KiB cap) now REACHES the host's uploadFile, which is the
+    // authority on the limit.
+    const big = new File(["x"], "photo.png");
+    Object.defineProperty(big, "size", { value: 2 * 1024 * 1024 });
+    await expect(actions.upload!(worktree, "/src", [big])).resolves.toBeUndefined();
+    expect(h.uploadFile).toHaveBeenCalledWith("/src/photo.png", expect.any(Uint8Array));
+  });
+
+  it("a host refusal carrying limitBytes renders the REAL limit (R3-853)", async () => {
+    h.uploadFile.mockRejectedValueOnce(
+      Object.assign(new Error("too large"), { code: "too-large", limitBytes: 26214400 }),
+    );
+    await expect(actions.upload!(worktree, "/src", [new File(["x"], "big.bin")])).rejects.toMatchObject({
       code: "too-large",
     });
+    // The message the reader sees names the host's limit, not a guess.
+    expect(writeError(Object.assign(new Error("x"), { code: "too-large", limitBytes: 26214400 }))).toBe(
+      "That file is over the 25 MB upload limit.",
+    );
+    // …and an older host's refusal (no limitBytes) keeps the static sentence.
+    expect(writeError(Object.assign(new Error("x"), { code: "too-large" }))).toBe(
+      "That file is too large to upload.",
+    );
   });
 });
 

@@ -44,7 +44,6 @@ export {
   moveRejection,
   uploadTargetDir,
   MOVE_MIME,
-  MAX_UPLOAD_BYTES,
   WRITE_ERR,
 } from "./explorer";
 export type { MountKind, MountScope, Crumb, MovePayload } from "./explorer";

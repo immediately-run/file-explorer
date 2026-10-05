@@ -23,9 +23,16 @@ export interface WritePorts {
   begin: () => void;
 }
 
-/** The friendly message for a thrown write error (host rejection code → text). */
-export const writeError = (e: unknown): string =>
-  WRITE_ERR[(e as { code?: string })?.code ?? "unknown"] ?? "Couldn’t complete that change.";
+/** The friendly message for a thrown write error (host rejection code → text).
+ *  R3-853: a `too-large` refusal carrying the host's `limitBytes` names the REAL
+ *  limit; an older host's refusal falls back to the static sentence. */
+export const writeError = (e: unknown): string => {
+  const err = e as { code?: string; limitBytes?: unknown } | null;
+  if (err?.code === "too-large" && typeof err.limitBytes === "number") {
+    return `That file is over the ${Math.round(err.limitBytes / (1024 * 1024))} MB upload limit.`;
+  }
+  return WRITE_ERR[err?.code ?? "unknown"] ?? "Couldn’t complete that change.";
+};
 
 const plural = (n: number, one: string, many: string): string =>
   `${n} ${n === 1 ? one : many}`;

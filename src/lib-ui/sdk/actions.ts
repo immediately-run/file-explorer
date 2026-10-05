@@ -16,7 +16,7 @@ import {
   cancelItemDrag,
   unmountSpace,
 } from "@immediately-run/sdk";
-import { basename, dirOf, joinPath, joinRel, MAX_UPLOAD_BYTES } from "../explorer";
+import { basename, dirOf, INLINE_DRAG_OUT_BYTES, joinPath, joinRel } from "../explorer";
 import { sdkFsSource } from "./mountFs";
 import type { Entry, ExplorerActions } from "../types";
 
@@ -64,13 +64,11 @@ export function makeSdkActions(): ExplorerActions {
       return relPath;
     },
 
-    // R3-82 upload: inline each file's bytes; a per-file soft cap throws `too-large`
-    // (the host enforces the real one), mapped by WRITE_ERR.
+    // R3-82 upload: inline each file's bytes. R3-853: NO client-side cap — the
+    // host enforces the real limit and names it (`err.limitBytes`), so a refusal
+    // here is the host's answer, not a guess that could drift from it.
     upload: async (_root, dirRel, files) => {
       for (const f of files) {
-        if (f.size > MAX_UPLOAD_BYTES) {
-          throw Object.assign(new Error("too large"), { code: "too-large" });
-        }
         const bytes = new Uint8Array(await f.arrayBuffer());
         await uploadFile(joinPath(dirRel, basename(f.name)), bytes);
       }
@@ -92,7 +90,7 @@ export function makeSdkActions(): ExplorerActions {
           try {
             const abs = joinPath(root.path, relPath.replace(/^\/+/, ""));
             const bytes = await sdkFsSource.readFile!(abs);
-            if (bytes.byteLength <= MAX_UPLOAD_BYTES) item.bytes = bytes;
+            if (bytes.byteLength <= INLINE_DRAG_OUT_BYTES) item.bytes = bytes;
           } catch {
             /* unreadable → reference-only */
           }
