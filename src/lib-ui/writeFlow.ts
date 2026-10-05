@@ -28,7 +28,7 @@ export interface WritePorts {
  *  limit; an older host's refusal falls back to the static sentence. */
 export const writeError = (e: unknown): string => {
   const err = e as { code?: string; limitBytes?: unknown } | null;
-  if (err?.code === "too-large" && typeof err.limitBytes === "number") {
+  if (err?.code === "too-large" && typeof err.limitBytes === "number" && Number.isFinite(err.limitBytes)) {
     // Name the limit as the host stated it: integral MiB as an integer, anything
     // finer to one decimal — rounding to a whole MB would misstate it in BOTH
     // directions (a 25.4 MB limit reading "25" invites a failing retry; a 1.5 MB
