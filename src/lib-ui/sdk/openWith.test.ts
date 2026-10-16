@@ -7,11 +7,13 @@ import type { ExplorerRoot, FsSource } from "../types";
 
 const invokeTask = vi.fn();
 const launch = vi.fn();
+const openBundle = vi.fn();
 const capDir = vi.fn((ref: unknown, opts: unknown) => ({ $cap: "dir", ...(ref as object), ...(opts as object) }));
 
 vi.mock("@immediately-run/sdk", () => ({
   invokeTask: (...a: unknown[]) => invokeTask(...a),
   launch: (...a: unknown[]) => launch(...a),
+  openBundle: (...a: unknown[]) => openBundle(...a),
   capDir: (...a: unknown[]) => capDir(...(a as [unknown, unknown])),
 }));
 
@@ -42,9 +44,12 @@ const root = (over: Partial<ExplorerRoot> = {}): ExplorerRoot => ({
 beforeEach(() => {
   invokeTask.mockReset();
   launch.mockReset();
+  openBundle.mockReset();
   capDir.mockClear();
   invokeTask.mockResolvedValue({ opened: true });
   launch.mockResolvedValue({ launchId: "launch-1", onDismiss: () => () => {} });
+  // R3-808: the tab open resolves by default — the overlay is the fallback, not the rule.
+  openBundle.mockResolvedValue(undefined);
 });
 
 describe("DECLARED_TASKS mirrors the manifest — §5.8 least authority, pinned", () => {
@@ -129,18 +134,20 @@ describe("probeOffer", () => {
     const offer = await probeOffer(fs, "/docs/content/roadmap/board", { offerable: DECLARED_TASKS });
     expect(offer).toEqual({ task: "open-declared", version: "1.0", label: "Open as board" });
     await openWith(root({ id: "space:docs", path: "/docs" }), "/docs/content/roadmap/board", offer!);
-    expect(invokeTask.mock.calls[0][0]).toBe("open-declared");
-    // `dir` and nothing else — an `app` key is the retired open-with shape the host refuses.
-    expect(Object.keys(invokeTask.mock.calls[0][1])).toEqual(["dir"]);
-    expect(JSON.stringify(invokeTask.mock.calls[0])).not.toContain("kanban-board");
+    // R3-808: the tab open carries the delegated directory and nothing else — no
+    // `app` key (the retired open-with shape the host refuses), no app identity.
+    expect(Object.keys(openBundle.mock.calls[0][0])).toEqual(["dir"]);
+    expect(invokeTask).not.toHaveBeenCalled();
+    expect(JSON.stringify(openBundle.mock.calls[0])).not.toContain("kanban-board");
   });
 
   it("a declared view is invoked through open-declared with dir AND the view's name — never its app (R3-789)", async () => {
     const offer = { task: "open-declared", version: "1.0", label: "Open as Roadmap board", view: "Roadmap board" };
     await openWith(root({ id: "space:docs", path: "/docs" }), "/docs/content", offer);
-    expect(invokeTask.mock.calls[0][0]).toBe("open-declared");
-    expect(Object.keys(invokeTask.mock.calls[0][1]).sort()).toEqual(["dir", "view"]);
-    expect(invokeTask.mock.calls[0][1].view).toBe("Roadmap board");
+    // The tab open carries the view's NAME beside the directory — the host resolves
+    // which app shows it.
+    expect(Object.keys(openBundle.mock.calls[0][0]).sort()).toEqual(["dir", "view"]);
+    expect(openBundle.mock.calls[0][0].view).toBe("Roadmap board");
   });
 
   it("offers nothing for a marker naming a contract this app does not invoke", async () => {
@@ -149,15 +156,38 @@ describe("probeOffer", () => {
   });
 });
 
-describe("openWith — delegates the folder, and only the folder", () => {
+describe("openWith — the bundle opens in its own tab; the overlay is the fallback (R3-808)", () => {
   const offer = { task: "open-wiki", version: "1.0", label: "Open as wiki" };
 
-  it("invokes the marker's contract with a capDir for that directory", async () => {
+  it("opens addressable directories with the host's openBundle verb — no overlay invoke", async () => {
     await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({ status: "opened" });
-    expect(invokeTask).toHaveBeenCalledTimes(1);
-    expect(invokeTask.mock.calls[0][0]).toBe("open-wiki");
-    expect(capDir).toHaveBeenCalledWith({ mountId: "space:abc", relPath: "/wiki" }, { mode: "rw" });
+    expect(openBundle).toHaveBeenCalledTimes(1);
+    expect(openBundle.mock.calls[0][0]).toEqual({
+      dir: { $cap: "dir", mountId: "space:abc", relPath: "/wiki", mode: "rw" },
+    });
+    expect(invokeTask).not.toHaveBeenCalled();
   });
+
+  it("forwards a declared view by NAME — the host resolves which app shows it", async () => {
+    await openWith(root(), "/spaces/abc/wiki", { ...offer, view: "board" });
+    expect(openBundle.mock.calls[0][0]).toEqual({
+      dir: { $cap: "dir", mountId: "space:abc", relPath: "/wiki", mode: "rw" },
+      view: "board",
+    });
+  });
+
+  it.each(["unaddressable", "unsupported", "timeout"] as const)(
+    "falls back to the overlay invoke on %s — the open that ran before the verb existed",
+    async (code) => {
+      openBundle.mockRejectedValue(Object.assign(new Error("no tab"), { code }));
+      await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({ status: "opened" });
+      expect(invokeTask).toHaveBeenCalledTimes(1);
+      expect(invokeTask.mock.calls[0][0]).toBe("open-wiki");
+      expect(invokeTask.mock.calls[0][1]).toEqual({
+        dir: { $cap: "dir", mountId: "space:abc", relPath: "/wiki", mode: "rw" },
+      });
+    },
+  );
 
   it("delegates at the mount's OWN mode — a ro grant opens a ro corpus (R3-266)", async () => {
     await openWith(root({ grants: [{ subtree: "/", mode: "ro" }] }), "/spaces/abc/wiki", offer);
@@ -180,12 +210,20 @@ describe("openWith — delegates the folder, and only the folder", () => {
     expect(capDir).toHaveBeenCalledWith({ mountId: "space:abc", relPath: "/wiki" }, { mode: "ro" });
   });
 
+  it("a real refusal of the TAB open never pays the overlay round trip — no-activation declines", async () => {
+    openBundle.mockRejectedValue(Object.assign(new Error("no gesture"), { code: "no-activation" }));
+    await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({ status: "declined" });
+    expect(invokeTask).not.toHaveBeenCalled();
+  });
+
   it("treats a user-closed viewer as ordinary — the affordance stays", async () => {
+    openBundle.mockRejectedValue(Object.assign(new Error("no tab"), { code: "unaddressable" }));
     invokeTask.mockRejectedValue(Object.assign(new Error("no"), { code: "cancelled" }));
     await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({ status: "declined" });
   });
 
   it("withdraws a contract nothing is bound to, instead of surfacing no-such-task", async () => {
+    openBundle.mockRejectedValue(Object.assign(new Error("no tab"), { code: "unaddressable" }));
     invokeTask.mockRejectedValue(Object.assign(new Error("no"), { code: "no-such-task" }));
     await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({
       status: "withdraw",
@@ -193,9 +231,12 @@ describe("openWith — delegates the folder, and only the folder", () => {
     });
   });
 
-  it("never rethrows a protocol error at the caller, whatever the code", async () => {
-    invokeTask.mockRejectedValue(Object.assign(new Error("boom"), { code: "forbidden" }));
+  it("never rethrows a protocol error at the caller, whatever the code and whichever path", async () => {
+    openBundle.mockRejectedValue(Object.assign(new Error("boom"), { code: "forbidden" }));
     await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({ status: "declined" });
+    openBundle.mockRejectedValue(new Error("no code at all"));
+    await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({ status: "declined" });
+    openBundle.mockRejectedValue(Object.assign(new Error("no tab"), { code: "timeout" }));
     invokeTask.mockRejectedValue(new Error("no code at all"));
     await expect(openWith(root(), "/spaces/abc/wiki", offer)).resolves.toEqual({ status: "declined" });
   });
