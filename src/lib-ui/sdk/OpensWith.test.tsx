@@ -67,6 +67,7 @@ const h = vi.hoisted(() => ({
   readdir: vi.fn<(path: string) => Promise<DirEntry[]>>(() => Promise.resolve([])),
   readFile: vi.fn<(path: string) => Promise<Uint8Array>>(() => Promise.reject(new Error("ENOENT"))),
   invokeTask: vi.fn((): Promise<unknown> => Promise.resolve({ opened: true })),
+  openBundle: vi.fn((): Promise<void> => Promise.resolve()),
   launch: vi.fn((): Promise<unknown> =>
     Promise.resolve({ launchId: "launch-1", onDismiss: () => () => {} }),
   ),
@@ -95,6 +96,7 @@ vi.mock("@immediately-run/sdk", () => ({
   requestMount: vi.fn(() => new Promise(() => {})),
   useRegion: () => null,
   invokeTask: (task: string, params: Record<string, unknown>) => h.invokeTask(task, params),
+  openBundle: (target: unknown) => h.openBundle(target),
   launch: (target: unknown, opts: unknown) => h.launch(target, opts),
   capDir: (ref: { mountId: string; relPath: string }, opts: { mode: "ro" | "rw" }) => ({
     $cap: "dir",
@@ -152,6 +154,10 @@ beforeEach(() => {
   );
   h.invokeTask.mockReset();
   h.invokeTask.mockResolvedValue({ opened: true });
+  // R3-808: the tab open resolves by default — a click opens a tab unless a test
+  // makes the host refuse with a fallback code (then the overlay runs instead).
+  h.openBundle.mockReset();
+  h.openBundle.mockResolvedValue(undefined);
   h.launch.mockReset();
   h.launch.mockResolvedValue({ launchId: "launch-1", onDismiss: () => () => {} });
 });
@@ -170,10 +176,13 @@ describe("R3-267 — a folder's opensWith marker finally has a caller", () => {
     const item = within(menu).getByRole("menuitem", { name: /Open as wiki/ });
     await user.click(item);
 
-    expect(h.invokeTask).toHaveBeenCalledTimes(1);
-    const [task, params] = h.invokeTask.mock.calls[0] as [string, Record<string, unknown>];
-    expect(task).toBe("open-wiki");
-    expect(params.dir).toEqual({ $cap: "dir", mountId: "space:s1", relPath: "/handbook", mode: "rw" });
+    // R3-808: the click opens the bundle in its own tab — the host's verb carries
+    // the delegated directory (and only that); no overlay invoke happens at all.
+    expect(h.openBundle).toHaveBeenCalledTimes(1);
+    expect(h.openBundle.mock.calls[0][0]).toEqual({
+      dir: { $cap: "dir", mountId: "space:s1", relPath: "/handbook", mode: "rw" },
+    });
+    expect(h.invokeTask).not.toHaveBeenCalled();
   });
 
   it("opens a DIFFERENT contract from the same code path — no task name in the caller", async () => {
@@ -185,7 +194,12 @@ describe("R3-267 — a folder's opensWith marker finally has a caller", () => {
     const menu = await menuFor("board");
     await user.click(within(menu).getByRole("menuitem", { name: /Open as board/ }));
 
-    expect(h.invokeTask.mock.calls[0][0]).toBe("open-project");
+    // The tab call is directory-shaped: whatever contract the marker names, the
+    // caller passes a capability and the host does the addressing.
+    expect(h.openBundle.mock.calls[0][0]).toEqual({
+      dir: { $cap: "dir", mountId: "space:s1", relPath: "/board", mode: "rw" },
+    });
+    expect(h.invokeTask).not.toHaveBeenCalled();
   });
 
   it("a marker naming a contract nothing is bound to degrades to NO affordance", async () => {
@@ -213,10 +227,12 @@ describe("R3-267 — a folder's opensWith marker finally has a caller", () => {
     await waitFor(() => expect(h.readFile).toHaveBeenCalledWith("/spaces/s1/handbook/immediately.run.json"));
 
     await user.click(within(await menuFor("handbook")).getByRole("menuitem", { name: /Open as wiki/ }));
-    expect((h.invokeTask.mock.calls[0][1] as { dir: { mode: string } }).dir.mode).toBe("ro");
+    expect((h.openBundle.mock.calls[0][0] as { dir: { mode: string } }).dir.mode).toBe("ro");
   });
 
   it("a user closing the viewer (cancelled) leaves the affordance in place", async () => {
+    // The host cannot address a space folder by URL — the ordinary overlay path.
+    h.openBundle.mockRejectedValue(Object.assign(new Error("no tab"), { code: "unaddressable" }));
     h.invokeTask.mockRejectedValue(Object.assign(new Error("dismissed"), { code: "cancelled" }));
     const user = userEvent.setup();
     render(<FileExplorer />);
@@ -231,6 +247,7 @@ describe("R3-267 — a folder's opensWith marker finally has a caller", () => {
   });
 
   it("a host refusal WITHDRAWS the affordance instead of showing a protocol code", async () => {
+    h.openBundle.mockRejectedValue(Object.assign(new Error("no tab"), { code: "unaddressable" }));
     h.invokeTask.mockRejectedValue(Object.assign(new Error("nope"), { code: "no-such-task" }));
     const user = userEvent.setup();
     render(<FileExplorer />);
@@ -348,17 +365,20 @@ describe("R3-789 — a declared view gets its own 'Open as <name>' (§4b.1a)", (
     expect(within(menu).getByRole("menuitem", { name: /Open as wiki/ })).toBeInTheDocument();
     await user.click(within(menu).getByRole("menuitem", { name: /Open as Roadmap board/ }));
 
-    expect(h.invokeTask).toHaveBeenCalledTimes(1);
-    const [task, params] = h.invokeTask.mock.calls[0] as [string, Record<string, unknown>];
-    expect(task).toBe("open-declared");
-    // The view's NAME and the folder — never its app, never an entry.
-    expect(params).toEqual({
+    // R3-808: the view opens in its own tab — the host verb carries the directory
+    // and the view's NAME, and nothing names an app.
+    expect(h.openBundle).toHaveBeenCalledTimes(1);
+    expect(h.openBundle.mock.calls[0][0]).toEqual({
       dir: { $cap: "dir", mountId: "space:s1", relPath: "/content", mode: "rw" },
       view: "Roadmap board",
     });
+    expect(h.invokeTask).not.toHaveBeenCalled();
   });
 
   it("a withdrawn open-declared removes the view item and leaves the bundle's own offer", async () => {
+    // The overlay path is what can withdraw: the host cannot address this folder
+    // by URL, and nothing is bound to the open-declared contract.
+    h.openBundle.mockRejectedValue(Object.assign(new Error("no tab"), { code: "unaddressable" }));
     h.invokeTask.mockRejectedValue(Object.assign(new Error("nope"), { code: "no-such-task" }));
     const user = userEvent.setup();
     render(<FileExplorer />);

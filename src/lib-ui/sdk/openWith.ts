@@ -3,7 +3,7 @@
 //
 // The DECISION is in `../opensWith` (pure, host-free). This file is the wiring: the
 // declared contract list, the probe that reads a directory's marker, and the invoke.
-import { invokeTask, capDir, launch } from "@immediately-run/sdk";
+import { invokeTask, capDir, launch, openBundle } from "@immediately-run/sdk";
 import { CONTENT_MARKER_FILE, opensWithOffer, withdrawsOffer } from "../opensWith";
 import type { OpensWithOffer } from "../opensWith";
 import { grantedModeAt, joinPath, toMountRel } from "../explorer";
@@ -68,8 +68,28 @@ export type OpenWithOutcome =
   /** Nothing is bound to this contract (or we may not call it) — stop offering it. */
   | { status: "withdraw"; task: string };
 
+/** Why an `openBundle` attempt fell back to the overlay invoke (R3-808).
+ *
+ *  These three codes mean "this open cannot be a tab, but the bundle is real and
+ *  held": `unaddressable` (the host has no URL for the source — a space folder, a
+ *  session mount), `unsupported` (this host knows the request but wires no
+ *  bundle-open surface), and `timeout` (a host that predates the verb never
+ *  answers). Every other code — `no-activation`, `forbidden`, `invalid` — is a
+ *  real refusal about THIS call, and falls through to the caller's ordinary
+ *  decline handling instead of paying a second round trip. */
+const OPEN_BUNDLE_FALLBACK_CODES = new Set(["unaddressable", "unsupported", "timeout"]);
+
 /**
  * Invoke the contract a folder's marker names, delegating THAT folder and nothing else.
+ *
+ * R3-808 (BUNDLE_EMBEDDING §4b.9 rules 1–2): an addressable directory opens in its
+ * OWN present-mode browser tab first, via the host's `openBundle` verb — no overlay,
+ * no delegation minted in this tab. The host checks the holding, builds the URL from
+ * its own route grammar (never revealed here) and opens on this call's own user
+ * activation, so the verb is tried synchronously from the click, before any `await`.
+ * When the host cannot address the directory by URL (`unaddressable` — a space
+ * folder, a session or delegated mount), or does not know the verb at all, the
+ * overlay `invokeTask` below is exactly the open that ran before the verb existed.
  *
  * The delegation is a `capDir` at the folder, at the mount's own granted mode — dispatch
  * changes the packaging, not the authority, so a viewer opened on an `rw` mount can edit
@@ -87,9 +107,23 @@ export async function openWith(
   offer: OpensWithOffer,
 ): Promise<OpenWithOutcome> {
   const relPath = toMountRel(root.path, dirAbsPath);
+  const dir = capDir({ mountId: root.id, relPath }, { mode: grantedModeAt(root, relPath) });
+  // The tab open must leave here synchronously — the host samples ITS user activation
+  // the moment the message arrives, and an `await` before the verb is a `no-activation`
+  // refusal. A fallback code falls through to the overlay below; any other refusal is
+  // mapped by the same decline/withdraw rule the overlay's own errors use.
+  try {
+    await openBundle({ dir, ...(offer.view !== undefined ? { view: offer.view } : {}) });
+    return { status: "opened" };
+  } catch (e) {
+    const code = (e as { code?: string } | null)?.code;
+    if (!OPEN_BUNDLE_FALLBACK_CODES.has(code ?? "")) {
+      return withdrawsOffer(code) ? { status: "withdraw", task: offer.task } : { status: "declined" };
+    }
+  }
   try {
     await invokeTask(offer.task, {
-      dir: capDir({ mountId: root.id, relPath }, { mode: grantedModeAt(root, relPath) }),
+      dir,
       // R3-789: a declared view is selected by NAME; the host resolves its app.
       ...(offer.view !== undefined ? { view: offer.view } : {}),
     });
